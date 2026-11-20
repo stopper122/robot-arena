@@ -39,10 +39,12 @@ function pollKeyboard() {
 // A VEX V5 controller plugged in with USB shows up as a game controller (vendor 2888, product 0503),
 // but its numbering depends on whether the controller is powered on.
 // ON (recorded 2026-11-19 in Chrome on Windows, 4 axes): sticks = axes 0/1 (left) and 2/3 (right), with
-// left/right reversed (+1 = left) and up = -1. A=11 B=8 X=13 Y=12, L-up=4 L-down=5, R-up=2 R-down=0,
-// up arrow=3, left arrow=1 (down/right arrows don't report). Windows also lists it twice (mirrored).
+// left/right reversed (+1 = left) and up = -1. Buttons found by press-count tests:
+// A=9 X=11 Y=8, L-up=13 L-down=12, R-up=4 R-down=5, arrows Up=2 Down=0 Left=3 Right=1.
+// B never reported in the tests; 10 is the one number left, so B is assumed to be 10.
+// Windows also lists the controller twice (mirrored).
 const V5_ON = { name: 'V5 controller', ax: [0, 1, 2, 3], flipX: true,
-  btn: { 11: 'A', 8: 'B', 13: 'X', 12: 'Y', 4: 'L1', 5: 'L2', 2: 'R1', 0: 'R2', 3: 'Up', 1: 'Left' } };
+  btn: { 9: 'A', 10: 'B', 11: 'X', 8: 'Y', 13: 'L1', 12: 'L2', 4: 'R1', 5: 'R2', 2: 'Up', 0: 'Down', 3: 'Left', 1: 'Right' } };
 // OFF (from the robot-field-sim controller test, 10 axes): sticks = axes 0/1 and 2/5,
 // B=0 A=1 Y=2 X=3 L1=4 R1=5 L2=6 R2=7, arrows 12-15 plus a "hat" on axis 9.
 const V5_OFF = { name: 'V5 controller', ax: [0, 1, 2, 5], btn: { 0: 'B', 1: 'A', 2: 'Y', 3: 'X', 4: 'L1', 5: 'R1', 6: 'L2', 7: 'R2', 12: 'Up', 13: 'Down', 14: 'Left', 15: 'Right' },
