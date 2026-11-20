@@ -26,5 +26,7 @@ The browser sees it as a game controller with its own numbering, which also chan
 `js/input.js` has both layouts (recorded on real hardware). Windows lists one V5 controller twice, so the join screen ignores the mirror copy.
 
 ## Code
+**Updating:** shared files load as `js/x.js?v=N` through each page's import map. After changing anything in `js/` or `css/`, bump `v=N` in all five HTML files, or browsers may keep the old file for up to 10 minutes.
+
 Static site, no build step. Shared code in `js/` (input, audio, lobby/HUD, driving, three.js scene helpers); one HTML page per game.
 3D uses three.js 0.170.0 from jsDelivr.
