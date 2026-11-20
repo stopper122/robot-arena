@@ -63,3 +63,10 @@ label { font-size: 15px; color: var(--muted); display: flex; gap: 8px; align-ite
 .corner-help { position: fixed; bottom: 10px; left: 12px; color: rgba(255,255,255,.55); font-size: 13px; z-index: 5; pointer-events: none; }
 
 @media (max-width: 760px) { .slots { grid-template-columns: repeat(2, 1fr); } h1 { font-size: 30px; } .hud .box { font-size: 22px; min-width: 70px; } }
+
+/* online play */
+.netrow { margin-top: 12px; }
+.netbox { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; background: #262c39; border-radius: 12px; padding: 10px 14px; font-size: 16px; color: #d5dae3; }
+.netbox .code { font-family: Consolas, monospace; font-size: 28px; font-weight: 900; letter-spacing: 4px; color: var(--core); background: #12151c; padding: 2px 12px; border-radius: 8px; }
+.netbox .status { width: 100%; margin: 0; }
+body.netclient [data-lobby] .row, body.netclient [data-lobby] .backlink, body.netclient [data-end] .row, body.netclient .slot .chips { display: none !important; }

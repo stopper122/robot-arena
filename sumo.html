@@ -4,8 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Sumo Bots · Robot Arena</title>
-<link rel="stylesheet" href="css/game.css?v=6">
-<script type="importmap">{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js", "./js/input.js": "./js/input.js?v=6", "./js/audio.js": "./js/audio.js?v=6", "./js/lobby.js": "./js/lobby.js?v=6", "./js/drive.js": "./js/drive.js?v=6", "./js/scene3d.js": "./js/scene3d.js?v=6" } }</script>
+<link rel="stylesheet" href="css/game.css?v=8">
+<script type="importmap">{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js", "./js/input.js": "./js/input.js?v=8", "./js/audio.js": "./js/audio.js?v=8", "./js/lobby.js": "./js/lobby.js?v=8", "./js/drive.js": "./js/drive.js?v=8", "./js/scene3d.js": "./js/scene3d.js?v=8", "./js/net.js": "./js/net.js?v=8" } }</script>
 </head>
 <body>
 <canvas id="c" class="game"></canvas>
@@ -16,6 +16,7 @@ import { pollInputs, endInputFrame } from './js/input.js';
 import { sfx, unlockAudio } from './js/audio.js';
 import { createLobby, createHud, COLORS, FFA, SPEED_SELECT, fmtTime } from './js/lobby.js';
 import { SPEEDS, driveInput } from './js/drive.js';
+import { net, hostTick, clientTick, sound, burst, smoothTo } from './js/net.js';
 
 // The ring is centered at (0,0). Robots have real momentum here so they can shove each other.
 const RING = 62, MIN_RING = 30, SHRINK_AFTER = 25, R_ROBOT = 10.5;
@@ -44,6 +45,7 @@ top.position.y = -3; top.receiveShadow = true; ring.add(top);
 const pit = new THREE.GridHelper(1200, 60, 0x2a3346, 0x1a2030); pit.position.y = -140; scene.add(pit);
 const dyn = new THREE.Group(); scene.add(dyn);
 const parts = makeParticles(scene);
+net.parts = parts;
 const hud = createHud();
 
 let state = 'lobby', robots = [], speed = SPEEDS.normal, rounds = 3, round = 0, countdown = 0, lastBeep = 0, roundT = 0, ringR = RING, banner = 0;
@@ -137,7 +139,7 @@ function step(dt) {
     if (rel < 0) {
       const j2 = -(1 + 0.25) * rel / 2;
       a.vx -= j2 * nx; a.vy -= j2 * ny; b.vx += j2 * nx; b.vy += j2 * ny;
-      if (-rel > 25) { sfx.bump(); parts.burst((a.x + b.x) / 2, 6, (a.y + b.y) / 2, 0xffffff, 6, 25); }
+      if (-rel > 25) { sound('bump'); burst((a.x + b.x) / 2, 6, (a.y + b.y) / 2, 0xffffff, 6, 25); }
       // remember who pushed whom, for "push-offs"
       const aPush = (a.vx * nx + a.vy * ny), bPush = -(b.vx * nx + b.vy * ny);
       if (aPush > bPush) b.lastHit = a; else a.lastHit = b;
@@ -146,14 +148,14 @@ function step(dt) {
   // falling off
   for (const r of robots) {
     if (r.alive && Math.hypot(r.x, r.y) > ringR) {
-      r.alive = false; r.vh = 10; sfx.fall();
+      r.alive = false; r.vh = 10; sound('fall');
       if (r.lastHit && r.lastHit.alive) r.lastHit.pushes++;
     }
   }
   const alive = robots.filter(r => r.alive);
   if ((robots.length > 1 && alive.length <= 1) || (robots.length === 1 && alive.length === 0)) {
     const w = alive[0];
-    if (w) { w.wins++; sfx.win(); hud.big(`${w.name} wins round ${round}!`, COLORS[w.color].main, true); parts.burst(w.x, 20, w.y, 0xffd23f, 30, 50); }
+    if (w) { w.wins++; sound('win'); hud.big(`${w.name} wins round ${round}!`, COLORS[w.color].main, true); burst(w.x, 20, w.y, 0xffd23f, 30, 50); }
     else hud.big(robots.length === 1 ? 'Oops! Try again' : 'Nobody wins!', '#fff', true);
     state = 'roundover'; banner = 2.6;
   }
@@ -174,22 +176,47 @@ function endMatch() {
   const winners = robots.filter(r => r.wins === best);
   const title = winners.length > 1 ? "It's a tie!" : `${winners[0].name}${winners[0].cpu ? '' : ''} wins the match!`;
   const color = winners.length > 1 ? 'var(--core)' : COLORS[winners[0].color].main;
-  winners.length === 1 && !winners[0].cpu ? sfx.win() : sfx.end();
+  sound(winners.length === 1 && !winners[0].cpu ? 'win' : 'end');
   const rows = [...robots].sort((a, b) => b.wins - a.wins).map(r =>
     `<tr><td><b style="color:${COLORS[r.color].main}">${r.name}</b></td><td>${r.wins}</td><td>${r.pushes}</td></tr>`).join('');
   lobby.showEnd(title, color, `<table class="stats"><tr><th>Robot</th><th>Rounds won</th><th>Push-offs</th></tr>${rows}</table>`);
 }
 
-addEventListener('keydown', e => { if (e.code === 'Escape') state === 'lobby' ? location.href = './' : lobby.show(); });
+// ---------- online ----------
+const r1 = v => Math.round(v * 10) / 10;
+function snapshot() {
+  return { st: state, ring: r1(ringR), r: robots.map(r => [r.name, r.color, r1(r.x), r1(r.y), Math.round(r.th * 1000) / 1000, r1(r.h), Math.round(r.tumble * 100) / 100, r.alive ? 1 : 0, r.m.visible ? 1 : 0]) };
+}
+let robotSig = '';
+function applySnapshot(s) {
+  state = s.st; ringR = +s.ring || RING; ring.scale.set(ringR / RING, 1, ringR / RING);
+  const sig = s.r.map(a => a[0] + a[1]).join();
+  if (sig !== robotSig) {
+    robotSig = sig; robots.forEach(r => dyn.remove(r.m));
+    robots = s.r.map(a => { const c = COLORS[a[1]] || COLORS.red; const m = makeRobot(c.main, c.dark, String(a[0])); dyn.add(m); return { name: a[0], color: a[1], x: a[2], y: a[3], th: a[4], m }; });
+  }
+  s.r.forEach((a, i) => {
+    const r = robots[i];
+    Object.assign(r, { tx: a[2], ty: a[3], tth: a[4], h: a[5], tumble: a[6], alive: !!a[7] });
+    if (!r.alive) { r.x = a[2]; r.y = a[3]; }
+    r.m.visible = !!a[8];
+  });
+}
+
+addEventListener('keydown', e => { if (e.code === 'Escape' && !net.isClient) state === 'lobby' ? location.href = './' : lobby.show(); });
 let last = performance.now(), clock = 0;
 function frame(now) {
   const dt = Math.min(0.05, (now - last) / 1000); last = now; clock += dt;
   pollInputs();
-  if (state === 'lobby') lobby.update();
+  if (net.isClient) {
+    clientTick();
+    if (net.latest) { applySnapshot(net.latest); net.latest = null; }
+    robots.forEach(r => r.alive && smoothTo(r, dt));
+  } else if (state === 'lobby') lobby.update();
   else if (state === 'countdown') {
     countdown -= dt;
     const n = Math.ceil(countdown - 1);
-    if (n !== lastBeep) { lastBeep = n; n > 0 ? sfx.beep() : sfx.go(); }
+    if (n !== lastBeep) { lastBeep = n; sound(n > 0 ? 'beep' : 'go'); }
     hud.big(n > 0 ? String(n) : 'PUSH!', n > 0 ? '#fff' : 'var(--go)');
     if (countdown <= 0.4) { state = 'play'; hud.big(''); }
   } else if (state === 'play') { for (let k = 0; k < 3 && state === 'play'; k++) step(dt / 3); }
@@ -197,17 +224,18 @@ function frame(now) {
     banner -= dt;
     if (banner <= 0) { hud.big(''); round >= rounds ? endMatch() : nextRound(); }
   } else if (state === 'end') lobby.endUpdate();
-  if (state !== 'lobby') updateFalling(dt);
+  if (state !== 'lobby' && !net.isClient) updateFalling(dt);
   for (const r of robots) {
     placeRobot(r.m, r, r.h);
-    if (!r.alive) { r.m.rotation.x = r.tumble; r.m.rotation.z = r.tumble * 0.6; }
+    if (!r.alive) { r.m.rotation.x = r.tumble; r.m.rotation.z = r.tumble * 0.6; } else { r.m.rotation.x = 0; r.m.rotation.z = 0; }
   }
   if (state === 'lobby') ring.rotation.y = clock * 0.15; else ring.rotation.y = 0;
   parts.update(dt);
-  if (state !== 'lobby') {
+  if (state !== 'lobby' && !net.isClient) {
     hud.set(robots.map(r => ({ label: r.name, value: r.wins, color: COLORS[r.color].main })),
       `Round ${round}/${rounds}${ringR < RING ? ' ⚠' : ''}`);
   }
+  hostTick(snapshot);
   world.render();
   endInputFrame();
   requestAnimationFrame(frame);

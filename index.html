@@ -4,8 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Robot Arena</title>
-<link rel="stylesheet" href="css/game.css?v=6">
-<script type="importmap">{ "imports": { "./js/input.js": "./js/input.js?v=6", "./js/audio.js": "./js/audio.js?v=6", "./js/lobby.js": "./js/lobby.js?v=6", "./js/drive.js": "./js/drive.js?v=6", "./js/scene3d.js": "./js/scene3d.js?v=6" } }</script>
+<link rel="stylesheet" href="css/game.css?v=8">
+<script type="importmap">{ "imports": { "./js/input.js": "./js/input.js?v=8", "./js/audio.js": "./js/audio.js?v=8", "./js/lobby.js": "./js/lobby.js?v=8", "./js/drive.js": "./js/drive.js?v=8", "./js/scene3d.js": "./js/scene3d.js?v=8", "./js/net.js": "./js/net.js?v=8" } }</script>
 <style>
   body { overflow: auto; background: radial-gradient(1200px 600px at 50% -10%, #263049, var(--bg)); }
   main { max-width: 1180px; margin: 0 auto; padding: 28px 16px 40px; }
@@ -25,6 +25,11 @@
   .card p { margin: 0; color: #cfd5df; font-size: 15.5px; line-height: 1.45; }
   .help { margin-top: 26px; background: var(--panel); border-radius: 16px; padding: 16px 20px; color: #cfd5df; font-size: 16px; line-height: 1.6; }
   .help h3 { margin: 0 0 6px; color: var(--ink); }
+  .online { margin-top: 22px; background: var(--panel); border-radius: 16px; padding: 16px 20px; font-size: 16px; color: #cfd5df; }
+  .online h3 { margin: 0 0 8px; color: var(--ink); font-size: 22px; }
+  .online input { font: inherit; font-size: 24px; font-family: Consolas, monospace; letter-spacing: 4px; text-transform: uppercase;
+    width: 5.5em; padding: 6px 10px; border-radius: 10px; border: 2px solid #3a4253; background: #12151c; color: var(--core); }
+  body.netclient .grid .card { opacity: .45; pointer-events: none; }
   @media (max-width: 980px) { .grid { grid-template-columns: repeat(2, 1fr); } }
   @media (max-width: 560px) { .grid { grid-template-columns: 1fr; } header h1 { font-size: 36px; } }
 </style>
@@ -84,6 +89,19 @@
         <h2>Skills Course</h2><p>Drive through numbered gates in order, dodge cones, and park to stop the clock.</p></div>
     </a>
   </div>
+  <div class="online" id="online">
+    <h3>Play with other computers</h3>
+    <div id="netIdle">
+      <p style="margin:0 0 10px">One computer <b>hosts</b> and picks the game. The other computers <b>join</b> with the room code; their players show up on the host's screen and everyone sees the same game.</p>
+      <div class="row">
+        <button class="big go" id="hostBtn" style="margin-left:0">Host a room</button>
+        <span style="margin-left:12px">or join:</span>
+        <input id="codeIn" maxlength="4" placeholder="CODE" autocomplete="off" spellcheck="false">
+        <button class="big" id="joinBtn">Join</button>
+      </div>
+    </div>
+    <div id="netOn" class="netbox hidden"></div>
+  </div>
   <div class="help">
     <h3>Plugging in VEX V5 controllers</h3>
     Plug the V5 controller into the computer with a USB data cable (close VEXcode first) and press any button so the browser notices it.
@@ -96,6 +114,29 @@
 <script type="module">
 import { pollInputs, endInputFrame, menuNav } from './js/input.js';
 import { sfx } from './js/audio.js';
+import { net, onNetChange, hostGame, joinGame, stopOnline, clientTick } from './js/net.js';
+const $ = id => document.getElementById(id);
+$('hostBtn').onclick = () => hostGame();
+const doJoin = () => { const c = $('codeIn').value.trim().toUpperCase(); if (c.length === 4) joinGame(c); else $('codeIn').focus(); };
+$('joinBtn').onclick = doJoin;
+$('codeIn').addEventListener('keydown', e => { if (e.key === 'Enter') doJoin(); });
+onNetChange(n => {
+  document.body.classList.toggle('netclient', n.isClient);
+  $('netIdle').classList.toggle('hidden', !!n.role);
+  $('netOn').classList.toggle('hidden', !n.role);
+  if (!n.role) return;
+  const box = $('netOn'); box.textContent = '';
+  const add = (tag, text, cls) => { const e = document.createElement(tag); e.textContent = text; if (cls) e.className = cls; box.append(e); return e; };
+  if (n.isHost) {
+    add('span', 'Room code:'); add('span', n.code, 'code');
+    add('span', `${n.connected} other computer${n.connected === 1 ? '' : 's'} connected. Pick a game below; joined players press A in the game's lobby.`);
+  } else {
+    add('span', 'Joined room'); add('span', n.code, 'code');
+    add('span', n.connected ? 'Connected! Waiting for the host to pick a game…' : 'Connecting…');
+  }
+  const b = add('button', n.isHost ? 'Stop online' : 'Leave room', 'big'); b.onclick = () => stopOnline();
+  if (n.status) add('p', n.status, 'status');
+});
 const cards = [...document.querySelectorAll('.card')];
 let sel = 0;
 const cols = () => getComputedStyle(document.getElementById('grid')).gridTemplateColumns.split(' ').length;
@@ -103,7 +144,9 @@ function show() { cards.forEach((c, i) => c.classList.toggle('sel', i === sel));
 cards.forEach((c, i) => c.addEventListener('mouseenter', () => { sel = i; show(); }));
 function frame() {
   pollInputs();
+  clientTick();
   const n = menuNav(), before = sel;
+  if (net.isClient) n.ok = false; // the host picks the game
   if (n.left) sel = Math.max(0, sel - 1);
   if (n.right) sel = Math.min(cards.length - 1, sel + 1);
   if (n.up) sel = Math.max(0, sel - cols());

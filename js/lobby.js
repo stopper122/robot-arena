@@ -2,6 +2,7 @@
 import { sources, pressed } from './input.js';
 import { sfx, unlockAudio } from './audio.js';
 import { MODES, MODE_HELP } from './drive.js';
+import { net, onNetChange, hostGame, stopOnline, sound, safeHTML } from './net.js';
 
 export const COLORS = {
   red: { main: '#e5484d', dark: '#9b1c20', name: 'Red' },
@@ -38,6 +39,7 @@ export function createLobby(o) {
         <button class="big go" data-start>Start ▶</button>
       </div>
       <div class="status"></div>
+      <div class="netrow"></div>
     </div>
   </div>
   <div class="overlay hidden" data-end>
@@ -66,7 +68,7 @@ export function createLobby(o) {
     let team = null;
     if (o.teams) { const c = { red: 0, blue: 0 }; players.forEach(p => c[p.team]++); team = c.red <= c.blue ? 'red' : 'blue'; }
     players.push({ src: s.key, team, mode: 0, ready: false });
-    renumber(); sfx.join(); render();
+    renumber(); sound('join'); render();
   }
   function leave(p) { players.splice(players.indexOf(p), 1); renumber(); render(); }
   function setTeam(p, team) {
@@ -112,6 +114,27 @@ export function createLobby(o) {
   }
   function status(html) { lobbyEl.querySelector('.status').innerHTML = html; }
 
+  // ---- online: host button / room code, and client mode ----
+  const netEl = lobbyEl.querySelector('.netrow');
+  function renderNet() {
+    const st = net.status && !['online', 'connected'].includes(net.status) ? `<div class="status">${esc(net.status)}</div>` : '';
+    if (net.isHost) {
+      netEl.innerHTML = `<div class="netbox">Online room code <span class="code">${esc(net.code)}</span>
+        <span>${net.connected ? `${net.connected} other computer${net.connected > 1 ? 's' : ''} connected` : 'Other computers: open Robot Arena, click <b>Join a game</b>, type this code.'}</span>
+        <button class="chip" data-stopnet>Stop online</button>${st}</div>`;
+    } else if (net.isClient) {
+      netEl.innerHTML = `<div class="netbox">${net.connected ? `Connected to room <span class="code">${esc(net.code)}</span> — press <kbd>A</kbd> on your controller to join` : `Room <span class="code">${esc(net.code)}</span>`}
+        <button class="chip" data-stopnet>Leave room</button>${st}</div>`;
+    } else {
+      netEl.innerHTML = `<button class="big" data-hostnet>Play online with other computers</button>${st}`;
+    }
+  }
+  netEl.addEventListener('click', e => {
+    if (e.target.closest('[data-hostnet]')) hostGame();
+    if (e.target.closest('[data-stopnet]')) stopOnline();
+  });
+  onNetChange(() => { renderNet(); document.body.classList.toggle('netclient', net.isClient); });
+
   const api = {
     players,
     get visible() { return !lobbyEl.classList.contains('hidden'); },
@@ -135,7 +158,7 @@ export function createLobby(o) {
           if (pressed(s, 'A') && !mirror) join(s);
           continue;
         }
-        if (pressed(s, 'A')) { p.ready = !p.ready; p.ready && sfx.beep(); changed = true; }
+        if (pressed(s, 'A')) { p.ready = !p.ready; p.ready && sound('beep'); changed = true; }
         if (pressed(s, 'X') && s.kind !== 'kb') { p.mode = (p.mode + 1) % 3; changed = true; }
         if (pressed(s, 'Left')) setTeam(p, 'red');
         if (pressed(s, 'Right')) setTeam(p, 'blue');
@@ -143,6 +166,21 @@ export function createLobby(o) {
       }
       if (changed) render();
       if (players.length && players.every(p => p.ready)) tryStart();
+    },
+    /** host: what joined computers should see */
+    mirror() {
+      const t = endEl.querySelector('[data-endtitle]');
+      return { lv: lobbyEl.classList.contains('hidden') ? 0 : 1, sl: slotsEl.innerHTML,
+        ev: endEl.classList.contains('hidden') ? 0 : 1, et: t.textContent, ec: t.style.color, eb: endEl.querySelector('[data-endbody]').innerHTML };
+    },
+    /** client: show what the host sent */
+    applyMirror(d) {
+      if ('lv' in d) lobbyEl.classList.toggle('hidden', !d.lv);
+      if ('sl' in d) slotsEl.innerHTML = safeHTML(d.sl);
+      if ('ev' in d) endEl.classList.toggle('hidden', !d.ev);
+      if ('et' in d) endEl.querySelector('[data-endtitle]').textContent = String(d.et);
+      if ('ec' in d) endEl.querySelector('[data-endtitle]').style.color = /^[#a-z0-9(),.\s-]*$/i.test(d.ec) ? d.ec : '';
+      if ('eb' in d) endEl.querySelector('[data-endbody]').innerHTML = safeHTML(d.eb);
     },
     showEnd(title, color, bodyHtml) {
       const t = endEl.querySelector('[data-endtitle]');
@@ -160,6 +198,7 @@ export function createLobby(o) {
     },
   };
   render();
+  net.ui.lobby = api;
   return api;
 }
 
@@ -169,7 +208,15 @@ export function createHud() {
   const big = document.createElement('div'); big.className = 'bigtext';
   document.body.append(hud, big);
   let lastHtml = '', lastBig = '';
-  return {
+  const api = {
+    mirror() { return { hh: lastHtml, hv: hud.classList.contains('hidden') ? 0 : 1, bt: big.textContent, bc: big.style.color, bs: big.classList.contains('small') ? 1 : 0 }; },
+    applyMirror(d) {
+      if ('hh' in d) { lastHtml = String(d.hh); hud.innerHTML = safeHTML(d.hh); }
+      if ('hv' in d) hud.classList.toggle('hidden', !d.hv);
+      if ('bt' in d) big.textContent = String(d.bt);
+      if ('bc' in d) big.style.color = /^[#a-z0-9(),.\s-]*$/i.test(d.bc) ? d.bc : '#fff';
+      if ('bs' in d) big.classList.toggle('small', !!d.bs);
+    },
     show() { hud.classList.remove('hidden'); },
     hide() { hud.classList.add('hidden'); this.big(''); },
     /** items: [{label, value, color}] ; middle: timer text */
@@ -185,6 +232,8 @@ export function createHud() {
       big.textContent = text; big.style.color = color; big.classList.toggle('small', small);
     },
   };
+  net.ui.hud = api;
+  return api;
 }
 
 export const fmtTime = s => { s = Math.max(0, Math.ceil(s)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };

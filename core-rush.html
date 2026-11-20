@@ -4,8 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Core Rush · Robot Arena</title>
-<link rel="stylesheet" href="css/game.css?v=6">
-<script type="importmap">{ "imports": { "./js/input.js": "./js/input.js?v=6", "./js/audio.js": "./js/audio.js?v=6", "./js/lobby.js": "./js/lobby.js?v=6", "./js/drive.js": "./js/drive.js?v=6", "./js/scene3d.js": "./js/scene3d.js?v=6" } }</script>
+<link rel="stylesheet" href="css/game.css?v=8">
+<script type="importmap">{ "imports": { "./js/input.js": "./js/input.js?v=8", "./js/audio.js": "./js/audio.js?v=8", "./js/lobby.js": "./js/lobby.js?v=8", "./js/drive.js": "./js/drive.js?v=8", "./js/scene3d.js": "./js/scene3d.js?v=8", "./js/net.js": "./js/net.js?v=8" } }</script>
 </head>
 <body>
 <canvas id="c" class="game"></canvas>
@@ -15,6 +15,7 @@ import { pollInputs, endInputFrame, sources } from './js/input.js';
 import { sfx, unlockAudio } from './js/audio.js';
 import { createLobby, createHud, COLORS, TIME_SELECT, SPEED_SELECT, fmtTime } from './js/lobby.js';
 import { SPEEDS, driveInput, stepRobot } from './js/drive.js';
+import { net, hostTick, clientTick, sound, smoothTo } from './js/net.js';
 
 // ---------- constants (field units are inches; a VEX field is 144" = 12 ft) ----------
 const FIELD = 144, R_ROBOT = 10.5, R_BALL = 3.5, GOAL_R = 10, POST_R = 5, MAX_HELD = 2;
@@ -51,7 +52,7 @@ function startMatch() {
   state = 'countdown'; countdown = 3.999; lastBeep = 4;
 }
 function endMatch() {
-  state = 'end'; sfx.end();
+  state = 'end'; sound('end');
   const title = score.red > score.blue ? 'Red wins!' : score.blue > score.red ? 'Blue wins!' : "It's a tie!";
   const color = score.red > score.blue ? 'var(--red)' : score.blue > score.red ? 'var(--blue)' : 'var(--core)';
   lobby.showEnd(title, color,
@@ -66,7 +67,7 @@ function shoot(r) {
   const c = Math.cos(r.th), s = Math.sin(r.th), d = R_ROBOT + R_BALL + 1;
   const sp = 125 + Math.max(0, r.v);
   balls.push({ x: r.x + c * d, y: r.y + s * d, vx: c * sp, vy: s * sp, st: 'fly', t: 0.55, by: r });
-  sfx.shoot();
+  sound('shoot');
 }
 
 function respawnBall(b) {
@@ -118,7 +119,7 @@ function step(dt) {
         score[team] += pts;
         if (b.by && b.by.p.team === team) { b.by.points += pts; if (pts === 3) b.by.made++; }
         popups.push({ x: g.x, y: g.y - 6, text: '+' + pts, color: COLORS[team].main, t: 1.2 });
-        (pts === 3 ? sfx.score3 : sfx.score1)();
+        sound(pts === 3 ? 'score3' : 'score1');
         b.st = 'gone'; b.t = 1.5; b.by = null;
         break;
       }
@@ -128,7 +129,7 @@ function step(dt) {
       const c = Math.cos(r.th), s = Math.sin(r.th);
       const fx = r.x + c * 9, fy = r.y + s * 9;
       if (r.held < MAX_HELD && Math.hypot(b.x - fx, b.y - fy) < R_BALL + 5) {
-        r.held++; b.st = 'gone'; b.t = 1e9; b.held = r; sfx.grab(); break;
+        r.held++; b.st = 'gone'; b.t = 1e9; b.held = r; sound('grab'); break;
       }
       const dx = b.x - r.x, dy = b.y - r.y, d = Math.hypot(dx, dy) || 0.01, o = R_ROBOT + R_BALL - d;
       if (o > 0) {
@@ -234,29 +235,55 @@ function draw() {
   ctx.globalAlpha = 1; ctx.restore();
 }
 
+// ---------- online ----------
+const r1 = v => Math.round(v * 10) / 10;
+function snapshot() {
+  return { st: state,
+    r: robots.map(r => [r.p.name, r.p.team, r1(r.x), r1(r.y), Math.round(r.th * 1000) / 1000, r.held]),
+    b: balls.filter(b => b.st !== 'gone').map(b => [r1(b.x), r1(b.y), b.st === 'fly' ? 1 : 0, Math.round(b.t * 100) / 100, Math.round((b.pop || 0) * 100) / 100]),
+    pp: popups.map(p => [p.x, p.y, p.text, p.color, Math.round(p.t * 100) / 100]) };
+}
+let robotSig = '';
+function applySnapshot(s) {
+  state = s.st;
+  const sig = s.r.map(a => a[0] + a[1]).join();
+  if (sig !== robotSig) {
+    robotSig = sig;
+    robots = s.r.map(a => ({ p: { name: String(a[0]), team: COLORS[a[1]] ? a[1] : 'red' }, x: a[2], y: a[3], th: a[4], held: 0 }));
+  }
+  s.r.forEach((a, i) => Object.assign(robots[i], { tx: a[2], ty: a[3], tth: a[4], held: Math.min(MAX_HELD, +a[5] || 0) }));
+  balls = s.b.map(a => ({ x: a[0], y: a[1], st: a[2] ? 'fly' : 'roll', t: a[3], pop: a[4] }));
+  popups = s.pp.map(a => ({ x: a[0], y: a[1], text: String(a[2]), color: String(a[3]), t: a[4] }));
+}
+
 // ---------- main loop ----------
-addEventListener('keydown', e => { if (e.code === 'Escape') state === 'lobby' ? location.href = './' : lobby.show(); });
+addEventListener('keydown', e => { if (e.code === 'Escape' && !net.isClient) state === 'lobby' ? location.href = './' : lobby.show(); });
 let last = performance.now();
 function frame(now) {
   const dt = Math.min(0.05, (now - last) / 1000); last = now;
   pollInputs();
-  if (state === 'lobby') lobby.update();
+  if (net.isClient) {
+    clientTick();
+    if (net.latest) { applySnapshot(net.latest); net.latest = null; }
+    robots.forEach(r => smoothTo(r, dt));
+  } else if (state === 'lobby') lobby.update();
   else if (state === 'countdown') {
     hud.show();
     countdown -= dt;
     const n = Math.ceil(countdown - 1);
-    if (n !== lastBeep) { lastBeep = n; n > 0 ? sfx.beep() : sfx.go(); }
+    if (n !== lastBeep) { lastBeep = n; sound(n > 0 ? 'beep' : 'go'); }
     hud.big(n > 0 ? String(n) : 'GO!', n > 0 ? '#fff' : 'var(--go)');
     if (countdown <= 0.6) { state = 'play'; hud.big(''); }
   } else if (state === 'play') {
     for (let k = 0; k < 2; k++) step(dt / 2);
     if (matchLen) {
       const before = Math.ceil(timeLeft); timeLeft -= dt;
-      if (Math.ceil(timeLeft) !== before && timeLeft <= 5 && timeLeft > 0) sfx.beep();
+      if (Math.ceil(timeLeft) !== before && timeLeft <= 5 && timeLeft > 0) sound('beep');
       if (timeLeft <= 0) { timeLeft = 0; endMatch(); }
     }
   } else if (state === 'end') lobby.endUpdate();
-  if (state !== 'lobby') hud.set([{ label: 'RED', value: score.red, color: COLORS.red.main }, { label: 'BLUE', value: score.blue, color: COLORS.blue.main }], matchLen ? fmtTime(timeLeft) : '∞');
+  if (state !== 'lobby' && !net.isClient) hud.set([{ label: 'RED', value: score.red, color: COLORS.red.main }, { label: 'BLUE', value: score.blue, color: COLORS.blue.main }], matchLen ? fmtTime(timeLeft) : '∞');
+  hostTick(snapshot);
   draw();
   endInputFrame();
   requestAnimationFrame(frame);

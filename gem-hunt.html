@@ -4,8 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Gem Hunt · Robot Arena</title>
-<link rel="stylesheet" href="css/game.css?v=6">
-<script type="importmap">{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js", "./js/input.js": "./js/input.js?v=6", "./js/audio.js": "./js/audio.js?v=6", "./js/lobby.js": "./js/lobby.js?v=6", "./js/drive.js": "./js/drive.js?v=6", "./js/scene3d.js": "./js/scene3d.js?v=6" } }</script>
+<link rel="stylesheet" href="css/game.css?v=8">
+<script type="importmap">{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js", "./js/input.js": "./js/input.js?v=8", "./js/audio.js": "./js/audio.js?v=8", "./js/lobby.js": "./js/lobby.js?v=8", "./js/drive.js": "./js/drive.js?v=8", "./js/scene3d.js": "./js/scene3d.js?v=8", "./js/net.js": "./js/net.js?v=8" } }</script>
 </head>
 <body>
 <canvas id="c" class="game"></canvas>
@@ -16,6 +16,7 @@ import { pollInputs, endInputFrame } from './js/input.js';
 import { sfx, unlockAudio } from './js/audio.js';
 import { createLobby, createHud, COLORS, TIME_SELECT, SPEED_SELECT, fmtTime } from './js/lobby.js';
 import { SPEEDS, driveInput, stepRobot, separate, clampField } from './js/drive.js';
+import { net, hostTick, clientTick, sound, burst, smoothTo } from './js/net.js';
 
 const R_ROBOT = 10.5, GEMS_ON_FIELD = 8, GOLD_EVERY = 9, GOLD_LIFE = 8;
 const GEM_COLORS = [0xff4d6d, 0x4dd2ff, 0x9b5de5, 0x00f5d4, 0xf15bb5, 0x3a86ff];
@@ -25,10 +26,11 @@ const world = createWorld(document.getElementById('c'), { span: 150, pitch: 1.0 
 world.scene.add(makeField(144));
 const dyn = new THREE.Group(); world.scene.add(dyn);
 const parts = makeParticles(world.scene);
+net.parts = parts;
 const hud = createHud();
 
 let state = 'lobby', robots = [], gems = [], spawnQueue = [], timeLeft = 0, matchLen = 60, speed = SPEEDS.slow;
-let countdown = 0, lastBeep = 0, goldTimer = 0, clock = 0;
+let countdown = 0, lastBeep = 0, goldTimer = 0, clock = 0, gemId = 0;
 
 const lobby = createLobby({
   title: 'Gem Hunt', tag: '★ Easy · 3D',
@@ -45,12 +47,17 @@ function spawnGem(gold = false) {
     if (robots.some(r => Math.hypot(r.x - x, r.y - y) < 28)) continue;
     if (gems.some(g => Math.hypot(g.x - x, g.y - y) < 16)) continue;
     const color = gold ? 0xffc93c : GEM_COLORS[Math.floor(Math.random() * GEM_COLORS.length)];
-    const m = mesh(gold ? goldGeo : gemGeo, mat(color, { emissive: color, emissiveIntensity: gold ? 0.6 : 0.35, metalness: 0.4, roughness: 0.2 }));
-    m.position.set(x, 8, y); m.scale.setScalar(0.01); m.rotation.x = 0.5;
-    dyn.add(m);
-    gems.push({ x, y, gold, color, m, age: 0, phase: Math.random() * 6 });
+    addGem(++gemId, x, y, gold, color);
     return;
   }
+}
+function addGem(id, x, y, gold, color) {
+  const m = mesh(gold ? goldGeo : gemGeo, mat(color, { emissive: color, emissiveIntensity: gold ? 0.6 : 0.35, metalness: 0.4, roughness: 0.2 }));
+  m.position.set(x, 8, y); m.scale.setScalar(0.01); m.rotation.x = 0.5;
+  dyn.add(m);
+  const g = { id, x, y, gold, color, m, age: 0, phase: (id * 1.7) % 6 };
+  gems.push(g);
+  return g;
 }
 function resetGems() {
   gems.forEach(g => dyn.remove(g.m)); gems = []; spawnQueue = [];
@@ -80,7 +87,7 @@ function endMatch() {
   if (robots.length === 1) { title = `You got ${best} gem point${best === 1 ? '' : 's'}!`; color = 'var(--core)'; }
   else if (winners.length > 1) { title = "It's a tie!"; color = 'var(--core)'; }
   else { title = `${winners[0].p.name} wins!`; color = COLORS[winners[0].p.color].main; }
-  winners.length === 1 || robots.length === 1 ? sfx.win() : sfx.end();
+  sound(winners.length === 1 || robots.length === 1 ? 'win' : 'end');
   const rows = [...robots].sort((a, b) => b.score - a.score).map((r, i) =>
     `<tr><td>${i + 1}</td><td><b style="color:${COLORS[r.p.color].main}">${r.p.name}</b></td><td>${r.score}</td><td>${r.gold}</td></tr>`).join('');
   lobby.showEnd(title, color, `<table class="stats"><tr><th>Place</th><th>Player</th><th>Points</th><th>Gold gems</th></tr>${rows}</table>`);
@@ -97,8 +104,8 @@ function step(dt) {
       const g = gems[k];
       if (g.age < 0.3 || Math.hypot(r.x - g.x, r.y - g.y) > R_ROBOT + (g.gold ? 5 : 4)) continue;
       r.score += g.gold ? 3 : 1; if (g.gold) r.gold++;
-      (g.gold ? sfx.gold : sfx.gem)();
-      parts.burst(g.x, 7, g.y, g.color, g.gold ? 26 : 14);
+      sound(g.gold ? 'gold' : 'gem');
+      burst(g.x, 7, g.y, g.color, g.gold ? 26 : 14);
       dyn.remove(g.m); gems.splice(k, 1);
       if (!g.gold) spawnQueue.push(0.6);
     }
@@ -108,7 +115,7 @@ function step(dt) {
   if (goldTimer <= 0) { goldTimer = GOLD_EVERY; if (!gems.some(g => g.gold)) spawnGem(true); }
   for (let k = gems.length - 1; k >= 0; k--) {
     const g = gems[k];
-    if (g.gold && g.age > GOLD_LIFE) { parts.burst(g.x, 7, g.y, 0x888888, 8, 20); dyn.remove(g.m); gems.splice(k, 1); }
+    if (g.gold && g.age > GOLD_LIFE) { burst(g.x, 7, g.y, 0x888888, 8, 20); dyn.remove(g.m); gems.splice(k, 1); }
   }
   for (let k = spawnQueue.length - 1; k >= 0; k--) if ((spawnQueue[k] -= dt) <= 0) { spawnQueue.splice(k, 1); spawnGem(); }
 }
@@ -124,38 +131,67 @@ function updateVisuals(dt) {
   }
   for (const r of robots) placeRobot(r.m, r);
   parts.update(dt);
-  if (state !== 'lobby') {
+  if (state !== 'lobby' && !net.isClient) {
     hud.set(robots.map(r => ({ label: r.p.name, value: r.score, color: COLORS[r.p.color].main })), matchLen ? fmtTime(timeLeft) : '∞');
   }
 }
 
+// ---------- online ----------
+const r1 = v => Math.round(v * 10) / 10;
+function snapshot() {
+  return { st: state, r: robots.map(r => [r.p.name, r.p.color, r1(r.x), r1(r.y), Math.round(r.th * 1000) / 1000]),
+    g: gems.map(g => [g.id, r1(g.x), r1(g.y), g.gold ? 1 : 0, g.color, Math.round(g.age * 100) / 100]) };
+}
+let robotSig = '';
+function applySnapshot(s) {
+  state = s.st;
+  const sig = s.r.map(a => a[0] + a[1]).join();
+  if (sig !== robotSig) {
+    robotSig = sig; robots.forEach(r => dyn.remove(r.m));
+    robots = s.r.map(a => { const c = COLORS[a[1]] || COLORS.red; const m = makeRobot(c.main, c.dark, String(a[0])); dyn.add(m); return { p: { name: a[0], color: a[1] }, x: a[2], y: a[3], th: a[4], m }; });
+  }
+  s.r.forEach((a, i) => Object.assign(robots[i], { tx: a[2], ty: a[3], tth: a[4] }));
+  const keep = new Set();
+  for (const [id, x, y, gold, color, age] of s.g) {
+    keep.add(id);
+    const g = gems.find(q => q.id === id) || addGem(id, x, y, !!gold, color);
+    g.age = age;
+  }
+  for (let k = gems.length - 1; k >= 0; k--) if (!keep.has(gems[k].id)) { dyn.remove(gems[k].m); gems.splice(k, 1); }
+}
+
 // ---------- loop ----------
-addEventListener('keydown', e => { if (e.code === 'Escape') state === 'lobby' ? location.href = './' : lobby.show(); });
+addEventListener('keydown', e => { if (e.code === 'Escape' && !net.isClient) state === 'lobby' ? location.href = './' : lobby.show(); });
 let last = performance.now();
 function frame(now) {
   const dt = Math.min(0.05, (now - last) / 1000); last = now;
   pollInputs();
-  if (state === 'lobby') lobby.update();
+  if (net.isClient) {
+    clientTick();
+    if (net.latest) { applySnapshot(net.latest); net.latest = null; }
+    robots.forEach(r => smoothTo(r, dt));
+  } else if (state === 'lobby') lobby.update();
   else if (state === 'countdown') {
     countdown -= dt;
     const n = Math.ceil(countdown - 1);
-    if (n !== lastBeep) { lastBeep = n; n > 0 ? sfx.beep() : sfx.go(); }
+    if (n !== lastBeep) { lastBeep = n; sound(n > 0 ? 'beep' : 'go'); }
     hud.big(n > 0 ? String(n) : 'GO!', n > 0 ? '#fff' : 'var(--go)');
     if (countdown <= 0.4) { state = 'play'; hud.big(''); }
   } else if (state === 'play') {
     for (let k = 0; k < 2; k++) step(dt / 2);
     if (matchLen) {
       const before = Math.ceil(timeLeft); timeLeft -= dt;
-      if (Math.ceil(timeLeft) !== before && timeLeft <= 5 && timeLeft > 0) sfx.beep();
+      if (Math.ceil(timeLeft) !== before && timeLeft <= 5 && timeLeft > 0) sound('beep');
       if (timeLeft <= 0) { timeLeft = 0; endMatch(); }
     }
   } else if (state === 'end') lobby.endUpdate();
   updateVisuals(dt);
+  hostTick(snapshot);
   world.render();
   endInputFrame();
   requestAnimationFrame(frame);
 }
-resetGems();
+if (!net.isClient) resetGems();
 requestAnimationFrame(frame);
 </script>
 </body>

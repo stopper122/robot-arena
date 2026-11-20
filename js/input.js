@@ -13,7 +13,9 @@ export const dead = v => Math.abs(v) < 0.08 ? 0 : v;
 // ---------- keyboard ----------
 const keys = new Set(), taps = new Set(); // taps: pressed since the last frame, so quick taps still count
 const NO_SCROLL = ['Space', 'Enter', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'];
+const typing = e => e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement;
 addEventListener('keydown', e => {
+  if (typing(e)) return; // typing a room code is not driving
   if (NO_SCROLL.includes(e.code) && !(e.target instanceof HTMLSelectElement)) e.preventDefault();
   keys.add(e.code); taps.add(e.code);
   if (e.code === 'KeyF' && !e.repeat) toggleFull();
@@ -84,7 +86,7 @@ function pollGamepads() {
     // a button that is already down when the controller first appears is not a new press
     if (!s.started) { s.started = true; s.prev = new Set(s.btn); }
   }
-  for (const s of sources.values()) if (s.kind === 'gp' && !seen.has(s.key)) { s.alive = false; s.btn = new Set(); s.lx = s.ly = s.rx = s.ry = 0; }
+  for (const s of sources.values()) if (s.kind === 'gp' && !s.remote && !seen.has(s.key)) { s.alive = false; s.btn = new Set(); s.lx = s.ly = s.rx = s.ry = 0; }
 }
 
 /** Call once at the start of every frame. */

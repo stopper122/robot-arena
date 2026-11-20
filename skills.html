@@ -4,8 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Skills Course · Robot Arena</title>
-<link rel="stylesheet" href="css/game.css?v=6">
-<script type="importmap">{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js", "./js/input.js": "./js/input.js?v=6", "./js/audio.js": "./js/audio.js?v=6", "./js/lobby.js": "./js/lobby.js?v=6", "./js/drive.js": "./js/drive.js?v=6", "./js/scene3d.js": "./js/scene3d.js?v=6" } }</script>
+<link rel="stylesheet" href="css/game.css?v=8">
+<script type="importmap">{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js", "./js/input.js": "./js/input.js?v=8", "./js/audio.js": "./js/audio.js?v=8", "./js/lobby.js": "./js/lobby.js?v=8", "./js/drive.js": "./js/drive.js?v=8", "./js/scene3d.js": "./js/scene3d.js?v=8", "./js/net.js": "./js/net.js?v=8" } }</script>
 </head>
 <body>
 <canvas id="c" class="game"></canvas>
@@ -16,6 +16,7 @@ import { pollInputs, endInputFrame } from './js/input.js';
 import { sfx, unlockAudio } from './js/audio.js';
 import { createLobby, createHud, COLORS, SPEED_SELECT, fmtTenths } from './js/lobby.js';
 import { SPEEDS, driveInput, stepRobot, separate, clampField, pushFromSegment } from './js/drive.js';
+import { net, hostTick, clientTick, sound, burst, smoothTo } from './js/net.js';
 
 const R_ROBOT = 10.5, POST_R = 1.8, CONE_R = 3, CONE_PENALTY = 2, TIME_LIMIT = 180;
 const H = Math.PI / 2;
@@ -43,6 +44,7 @@ world.scene.add(makeField(144));
 const courseGroup = new THREE.Group(); world.scene.add(courseGroup);
 const dyn = new THREE.Group(); world.scene.add(dyn);
 const parts = makeParticles(world.scene);
+net.parts = parts;
 const hud = createHud();
 
 let state = 'lobby', course = COURSES.beginner, courseKey = 'beginner', robots = [], cones = [], speed = SPEEDS.normal;
@@ -104,6 +106,13 @@ function resetCones() {
 }
 
 // ---------- race ----------
+function makeRacer(p, i, x, y) {
+  const c = COLORS[p.color] || COLORS.red;
+  const m = makeRobot(c.main, c.dark, String(p.name)); dyn.add(m);
+  const arrow = mesh(new THREE.ConeGeometry(3, 7, 4), mat(c.main, { emissive: c.main, emissiveIntensity: 0.5 }), false);
+  arrow.rotation.x = Math.PI; dyn.add(arrow);
+  return { p, x, y, th: -H, v: 0, w: 0, next: 0, penalty: 0, done: null, still: 0, side: null, arrow, idx: i, m };
+}
 function start() {
   unlockAudio();
   const o = lobby.options();
@@ -111,13 +120,9 @@ function start() {
   robots.forEach(r => { dyn.remove(r.m); dyn.remove(r.arrow); });
   const n = lobby.players.length;
   robots = lobby.players.map((p, i) => {
-    const c = COLORS[p.color];
-    const m = makeRobot(c.main, c.dark, p.name); dyn.add(m);
-    const arrow = mesh(new THREE.ConeGeometry(3, 7, 4), mat(c.main, { emissive: c.main, emissiveIntensity: 0.5 }), false);
-    arrow.rotation.x = Math.PI; dyn.add(arrow);
     // line up side by side inside the finish box
     const x = n === 1 ? 26 : FINISH.x0 + 6 + (i % 2) * 20, y = n <= 2 ? 120 : 110 + Math.floor(i / 2) * 18;
-    return { p, x: n === 1 ? 26 : x + 1, y: n <= 2 ? 120 : y, th: -H, v: 0, w: 0, next: 0, penalty: 0, done: null, still: 0, side: null, arrow, idx: i, m };
+    return makeRacer(p, i, n === 1 ? 26 : x + 1, n <= 2 ? 120 : y);
   });
   robots.forEach(r => r.side = sideOf(r, course.gates[0]));
   elapsed = 0;
@@ -144,8 +149,8 @@ function step(dt) {
       if (Math.hypot(c.x - a.x, c.y - a.y) < R_ROBOT + CONE_R) {
         const sep = separate(a, c, R_ROBOT, CONE_R, 0);
         if (!c.hit && a.done == null) {
-          c.hit = true; a.penalty += CONE_PENALTY; sfx.penalty(); c.dir = Math.atan2(c.y - a.y, c.x - a.x);
-          parts.burst(c.x, 6, c.y, 0xff8a3d, 10, 30);
+          c.hit = true; a.penalty += CONE_PENALTY; sound('penalty'); c.dir = Math.atan2(c.y - a.y, c.x - a.x);
+          burst(c.x, 6, c.y, 0xff8a3d, 10, 30);
         }
       }
     }
@@ -155,12 +160,12 @@ function step(dt) {
     if (r.next < course.gates.length) {
       const g = course.gates[r.next], s = sideOf(r, g);
       if (s !== 0 && r.side !== 0 && s !== r.side && inGateSpan(r, g)) {
-        r.next++; sfx.gate(); parts.burst(g.x, 10, g.y, COLORS[r.p.color].main, 16, 35);
+        r.next++; sound('gate'); burst(g.x, 10, g.y, COLORS[r.p.color].main, 16, 35);
         if (r.next < course.gates.length) r.side = sideOf(r, course.gates[r.next]);
       } else if (s !== 0) r.side = s;
     } else if (inFinish(r) && Math.abs(r.v) < 4) {
       r.still += dt;
-      if (r.still > 0.5) { r.done = elapsed + r.penalty; sfx.win(); parts.burst(r.x, 14, r.y, 0x2fbf71, 30, 50); }
+      if (r.still > 0.5) { r.done = elapsed + r.penalty; sound('win'); burst(r.x, 14, r.y, 0x2fbf71, 30, 50); }
     } else r.still = 0;
   }
 }
@@ -188,19 +193,43 @@ function endRace() {
      <table class="stats"><tr><th>Place</th><th>Player</th><th>Time</th><th>Cone penalties</th></tr>${rows}</table>
      <p class="note">${course.name} course — best times on this computer</p>
      <table class="stats" style="max-width:420px;margin:0 auto 18px">${board || '<tr><td>No finishes yet</td></tr>'}</table>`);
-  finished.length ? sfx.win() : sfx.end();
+  sound(finished.length ? 'win' : 'end');
 }
 
-addEventListener('keydown', e => { if (e.code === 'Escape') state === 'lobby' ? location.href = './' : lobby.show(); });
+// ---------- online ----------
+const r1 = v => Math.round(v * 10) / 10;
+function snapshot() {
+  return { st: state, course: courseKey,
+    r: robots.map(r => [r.p.name, r.p.color, r1(r.x), r1(r.y), Math.round(r.th * 1000) / 1000, r.next, r.done != null ? 1 : 0]),
+    c: cones.map(c => [r1(c.x), r1(c.y), c.hit ? 1 : 0, Math.round(c.tip * 100) / 100, Math.round(c.dir * 100) / 100]) };
+}
+let robotSig = '';
+function applySnapshot(s) {
+  state = s.st;
+  if (s.course !== courseKey && COURSES[s.course]) { buildCourse(s.course); robotSig = ''; }
+  const sig = s.r.map(a => a[0] + a[1]).join();
+  if (sig !== robotSig) {
+    robotSig = sig; robots.forEach(r => { dyn.remove(r.m); dyn.remove(r.arrow); });
+    robots = s.r.map((a, i) => makeRacer({ name: a[0], color: a[1] }, i, a[2], a[3]));
+  }
+  s.r.forEach((a, i) => Object.assign(robots[i], { tx: a[2], ty: a[3], tth: a[4], next: a[5], done: a[6] ? 1 : null }));
+  (s.c || []).forEach((a, i) => { const c = cones[i]; if (c) Object.assign(c, { x: a[0], y: a[1], hit: !!a[2], tip: a[3], dir: a[4] }); });
+}
+
+addEventListener('keydown', e => { if (e.code === 'Escape' && !net.isClient) state === 'lobby' ? location.href = './' : lobby.show(); });
 let last = performance.now(), clock = 0;
 function frame(now) {
   const dt = Math.min(0.05, (now - last) / 1000); last = now; clock += dt;
   pollInputs();
-  if (state === 'lobby') lobby.update();
+  if (net.isClient) {
+    clientTick();
+    if (net.latest) { applySnapshot(net.latest); net.latest = null; }
+    robots.forEach(r => smoothTo(r, dt));
+  } else if (state === 'lobby') lobby.update();
   else if (state === 'countdown') {
     countdown -= dt;
     const n = Math.ceil(countdown - 1);
-    if (n !== lastBeep) { lastBeep = n; n > 0 ? sfx.beep() : sfx.go(); }
+    if (n !== lastBeep) { lastBeep = n; sound(n > 0 ? 'beep' : 'go'); }
     hud.big(n > 0 ? String(n) : 'GO!', n > 0 ? '#fff' : 'var(--go)');
     if (countdown <= 0.4) { state = 'play'; hud.big(''); }
   } else if (state === 'play') {
@@ -234,13 +263,14 @@ function frame(now) {
     c.m.position.x = c.x; c.m.position.z = c.y;
   }
   parts.update(dt);
-  if (state !== 'lobby') {
+  if (state !== 'lobby' && !net.isClient) {
     hud.set(robots.map(r => ({
       label: r.done != null ? `${r.p.name} · FINISHED` : r.next < course.gates.length ? `${r.p.name} · gate ${r.next + 1}/${course.gates.length}` : `${r.p.name} · PARK!`,
       value: r.done != null ? fmtTenths(r.done) : fmtTenths(elapsed + r.penalty) + (r.penalty ? ` (+${r.penalty})` : ''),
       color: COLORS[r.p.color].main,
     })), null);
   }
+  hostTick(snapshot);
   world.render();
   endInputFrame();
   requestAnimationFrame(frame);

@@ -25,8 +25,15 @@ Plug the controller into the computer with a USB data cable (close VEXcode first
 The browser sees it as a game controller with its own numbering, which also changes when the controller is on or off;
 `js/input.js` has both layouts (recorded on real hardware). Windows lists one V5 controller twice, so the join screen ignores the mirror copy.
 
+## Playing on different computers
+On the menu, one computer clicks **Host a room** and gets a 4-letter code. Other computers type the code and click **Join**.
+The host picks the game and everyone's screen follows; players on joined computers press A in the game lobby like anyone else.
+The host computer runs the game, and joined computers send their controller input and show what the host sees.
+Connections are direct between browsers (WebRTC via [PeerJS](https://peerjs.com/) and its free public server), so no game server is needed.
+A school network that blocks WebRTC peer connections will stop this; same-room play on one computer still works.
+
 ## Code
-**Updating:** shared files load as `js/x.js?v=N` through each page's import map. After changing anything in `js/` or `css/`, bump `v=N` in all five HTML files, or browsers may keep the old file for up to 10 minutes.
+**Updating:** shared files load as `js/x.js?v=N` through each page's import map. After changing anything in `js/` or `css/`, bump `v=N` in all six HTML files, or browsers may keep the old file for up to 10 minutes.
 
 Static site, no build step. Shared code in `js/` (input, audio, lobby/HUD, driving, three.js scene helpers); one HTML page per game.
 3D uses three.js 0.170.0 from jsDelivr.
