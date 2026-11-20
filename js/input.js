@@ -39,20 +39,31 @@ function pollKeyboard() {
 // A VEX V5 controller plugged in with USB shows up as a game controller (vendor 2888, product 0503),
 // but its numbering depends on whether the controller is powered on.
 // ON (recorded 2026-11-19 in Chrome on Windows, 4 axes): sticks = axes 0/1 (left) and 2/3 (right), with
-// left/right reversed (+1 = left) and up = -1. Buttons found by press-count tests:
-// A=9 X=11 Y=8, L-up=13 L-down=12, R-up=4 R-down=5, arrows Up=2 Down=0 Left=3 Right=1.
-// B never reported in the tests; 10 is the one number left, so B is assumed to be 10.
-// Windows also lists the controller twice (mirrored).
-const V5_ON = { name: 'V5 controller', ax: [0, 1, 2, 3], flipX: true,
-  btn: { 9: 'A', 10: 'B', 11: 'X', 8: 'Y', 13: 'L1', 12: 'L2', 4: 'R1', 5: 'R2', 2: 'Up', 0: 'Down', 3: 'Left', 1: 'Right' } };
+// left/right reversed (+1 = left) and up = -1. In the teacher's Chrome: B=9, X=11 (live test);
+// A=10 and Y=8 are the best guesses. L-up=13 L-down=12, R-up=4 R-down=5, arrows Up=2 Down=0 Left=3 Right=1
+// came from press-count tests. Windows also lists the controller twice (mirrored).
+// If a computer numbers things differently, controller-setup.html saves that computer's own layout.
+// ax = which axis is [left X, left Y, right X, right Y]; sg = multiply so right and up are +.
+const V5_ON = { name: 'V5 controller', ax: [0, 1, 2, 3], sg: [-1, -1, -1, -1],
+  btn: { 10: 'A', 9: 'B', 11: 'X', 8: 'Y', 13: 'L1', 12: 'L2', 4: 'R1', 5: 'R2', 2: 'Up', 0: 'Down', 3: 'Left', 1: 'Right' } };
 // OFF (from the robot-field-sim controller test, 10 axes): sticks = axes 0/1 and 2/5,
 // B=0 A=1 Y=2 X=3 L1=4 R1=5 L2=6 R2=7, arrows 12-15 plus a "hat" on axis 9.
-const V5_OFF = { name: 'V5 controller', ax: [0, 1, 2, 5], btn: { 0: 'B', 1: 'A', 2: 'Y', 3: 'X', 4: 'L1', 5: 'R1', 6: 'L2', 7: 'R2', 12: 'Up', 13: 'Down', 14: 'Left', 15: 'Right' },
+const V5_OFF = { name: 'V5 controller', ax: [0, 1, 2, 5], sg: [1, -1, 1, -1], btn: { 0: 'B', 1: 'A', 2: 'Y', 3: 'X', 4: 'L1', 5: 'R1', 6: 'L2', 7: 'R2', 12: 'Up', 13: 'Down', 14: 'Left', 15: 'Right' },
   hat: { axis: 9, Up: [-1, 1], Right: [-0.43, -0.14], Down: [0.14, -0.14], Left: [0.71, 1] } };
 // Everything else uses the browser's standard layout (Xbox, PlayStation, Switch Pro, Logitech...).
-const STD_PAD = { name: null, ax: [0, 1, 2, 3], btn: { 0: 'A', 1: 'B', 2: 'X', 3: 'Y', 4: 'L1', 5: 'R1', 6: 'L2', 7: 'R2', 12: 'Up', 13: 'Down', 14: 'Left', 15: 'Right' } };
-const isV5Pad = gp => /2888/.test(gp.id) && /0?503|V5/i.test(gp.id);
-const profileFor = gp => !isV5Pad(gp) ? STD_PAD : gp.axes.length <= 4 ? V5_ON : V5_OFF;
+const STD_PAD = { name: null, ax: [0, 1, 2, 3], sg: [1, -1, 1, -1], btn: { 0: 'A', 1: 'B', 2: 'X', 3: 'Y', 4: 'L1', 5: 'R1', 6: 'L2', 7: 'R2', 12: 'Up', 13: 'Down', 14: 'Left', 15: 'Right' } };
+export const isV5Pad = gp => /2888/.test(gp.id) && /0?503|V5/i.test(gp.id);
+
+// Layouts saved on this computer by controller-setup.html, keyed by controller id + axis count.
+export const SAVED_KEY = 'robot-arena-pad-layouts';
+export const padKey = gp => `${gp.id}|${gp.axes.length}`;
+let saved = {};
+try { saved = JSON.parse(localStorage.getItem(SAVED_KEY) || '{}'); } catch { /* storage blocked */ }
+function profileFor(gp) {
+  const mine = saved[padKey(gp)];
+  if (mine) return { name: isV5Pad(gp) ? 'V5 controller' : null, ...mine };
+  return !isV5Pad(gp) ? STD_PAD : gp.axes.length <= 4 ? V5_ON : V5_OFF;
+}
 
 function pollGamepads() {
   const seen = new Set();
@@ -62,8 +73,8 @@ function pollGamepads() {
     const name = pf.name || gp.id.replace(/\(.*?\)/g, '').trim().slice(0, 28) || 'Gamepad';
     const s = getSource('gp' + gp.index, `Controller ${gp.index + 1}: ${name}`, 'gp');
     seen.add(s.key); s.alive = true; s.padId = gp.id;
-    const a = i => dead(gp.axes[pf.ax[i]] || 0), fx = pf.flipX ? -1 : 1;
-    s.lx = fx * a(0); s.ly = -a(1); s.rx = fx * a(2); s.ry = -a(3);
+    const a = i => pf.ax[i] == null ? 0 : dead((gp.axes[pf.ax[i]] || 0) * pf.sg[i]);
+    s.lx = a(0); s.ly = a(1); s.rx = a(2); s.ry = a(3);
     s.btn = new Set();
     gp.buttons.forEach((b, i) => { if ((b.pressed || b.value > 0.5) && pf.btn[i]) s.btn.add(pf.btn[i]); });
     if (pf.hat && gp.axes.length > pf.hat.axis) {

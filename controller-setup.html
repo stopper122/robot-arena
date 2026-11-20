@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Controller Setup · Robot Arena</title>
+<link rel="stylesheet" href="css/game.css?v=6">
+<script type="importmap">{ "imports": { "./js/input.js": "./js/input.js?v=6", "./js/audio.js": "./js/audio.js?v=6", "./js/lobby.js": "./js/lobby.js?v=6", "./js/drive.js": "./js/drive.js?v=6", "./js/scene3d.js": "./js/scene3d.js?v=6" } }</script>
+<style>
+  body { overflow: auto; }
+  main { max-width: 860px; margin: 0 auto; padding: 24px 16px 40px; }
+  .prompt { font-size: 44px; font-weight: 900; margin: 18px 0 6px; min-height: 1.2em; }
+  .prompt .k { color: var(--core); }
+  .sub { color: #cfd5df; font-size: 18px; min-height: 1.5em; }
+  .progress { display: flex; gap: 6px; flex-wrap: wrap; margin: 16px 0; }
+  .progress span { padding: 4px 10px; border-radius: 999px; background: #2a3141; font-size: 14px; color: var(--muted); }
+  .progress span.done { background: #1f6f45; color: #fff; } .progress span.now { background: var(--core); color: #222; font-weight: 800; }
+  .progress span.skip { background: #5a3a1a; color: #fff; }
+  pre { background: #0d1018; padding: 12px; border-radius: 10px; white-space: pre-wrap; word-break: break-all; font-size: 13px; color: #cfd5df; }
+  .live { display: flex; gap: 8px; flex-wrap: wrap; min-height: 44px; margin: 8px 0; }
+  .live span { background: var(--go); color: #062b16; font-weight: 800; padding: 8px 14px; border-radius: 10px; font-size: 20px; }
+  .sticks { display: flex; gap: 24px; margin: 10px 0; }
+  .stick { width: 120px; height: 120px; border-radius: 50%; background: #2a3141; position: relative; }
+  .stick i { position: absolute; width: 26px; height: 26px; border-radius: 50%; background: var(--core); left: 47px; top: 47px; }
+  .stick b { position: absolute; bottom: -24px; width: 100%; text-align: center; font-size: 14px; color: var(--muted); }
+</style>
+</head>
+<body>
+<main>
+  <a class="backlink" href="./">◀ All games</a>
+  <h1>Controller Setup</h1>
+  <p class="how">If a controller's buttons do the wrong thing in the games, teach this computer which button is which.
+    Plug in <b>one</b> controller and follow the prompts. It is saved on this computer only.</p>
+  <div id="pad" class="sub">Press any button on the controller to begin…</div>
+  <div class="prompt" id="prompt"></div>
+  <div class="sub" id="sub"></div>
+  <div class="progress" id="progress"></div>
+  <div class="row">
+    <button class="big" id="skip">Skip this one (button doesn't work)</button>
+    <button class="big" id="restart">Start over</button>
+  </div>
+  <div id="done" class="hidden">
+    <h2>Try it!</h2>
+    <p class="sub">Press buttons and move the sticks; the names below should match what you press.</p>
+    <div class="live" id="live"></div>
+    <div class="sticks"><div class="stick"><i id="ls"></i><b>Left stick</b></div><div class="stick"><i id="rs"></i><b>Right stick</b></div></div>
+    <div class="row" style="margin-top:34px">
+      <button class="big go" id="save" style="margin-left:0">Save for this computer</button>
+      <button class="big" id="reset">Remove saved layout (use default)</button>
+    </div>
+    <p class="status" id="status"></p>
+    <p class="sub">Send this to the person who maintains the games so it can become the default for every computer:</p>
+    <pre id="json"></pre>
+  </div>
+</main>
+<script type="module">
+import { isV5Pad, padKey, SAVED_KEY } from './js/input.js';
+
+const BUTTONS = [['A', 'A'], ['B', 'B'], ['X', 'X'], ['Y', 'Y'], ['L1', 'L-up (top left bumper)'], ['L2', 'L-down (bottom left bumper)'],
+  ['R1', 'R-up (top right bumper)'], ['R2', 'R-down (bottom right bumper)'], ['Up', 'Up arrow'], ['Down', 'Down arrow'], ['Left', 'Left arrow'], ['Right', 'Right arrow']];
+const STICKS = [[0, 'LEFT joystick to the RIGHT'], [1, 'LEFT joystick UP'], [2, 'RIGHT joystick to the RIGHT'], [3, 'RIGHT joystick UP']];
+const STEPS = [...BUTTONS.map(([name, label]) => ({ kind: 'btn', name, label })), ...STICKS.map(([i, label]) => ({ kind: 'stick', i, label }))];
+
+let padIndex = null, primed = false, step = 0, map, held = new Set(), base = [], waitCenter = false, prevPressed = new Set(), status = [];
+const $ = id => document.getElementById(id);
+
+function reset() {
+  map = { ax: [null, null, null, null], sg: [1, 1, 1, 1], btn: {} };
+  step = 0; status = STEPS.map(() => ''); waitCenter = false; held = null;
+  $('done').classList.add('hidden'); render();
+}
+function pad() { return padIndex == null ? null : navigator.getGamepads()[padIndex]; }
+function render() {
+  const s = STEPS[step];
+  $('progress').innerHTML = STEPS.map((x, i) => `<span class="${i === step ? 'now' : status[i]}">${x.kind === 'btn' ? x.name : ['LX', 'LY', 'RX', 'RY'][x.i]}</span>`).join('');
+  if (!s) { $('prompt').textContent = 'All done!'; $('sub').textContent = ''; finish(); return; }
+  $('prompt').innerHTML = s.kind === 'btn' ? `Press <span class="k">${s.label}</span>` : `Push the <span class="k">${s.label}</span>`;
+  $('sub').textContent = s.kind === 'stick' ? 'Push it all the way and hold for a moment, then let go.' : '';
+}
+function next(result) { status[step] = result; step++; held = null; waitCenter = result === 'done' && STEPS[step - 1].kind === 'stick'; render(); }
+
+$('skip').onclick = () => { if (step < STEPS.length) next('skip'); };
+$('restart').onclick = reset;
+addEventListener('keydown', e => { if (e.code === 'Space') { e.preventDefault(); $('skip').click(); } });
+
+function finish() {
+  $('done').classList.remove('hidden');
+  const p = pad();
+  const out = { id: p ? p.id : '?', axes: p ? p.axes.length : 0, ...map };
+  $('json').textContent = JSON.stringify(out);
+}
+$('save').onclick = () => {
+  const p = pad(); if (!p) return;
+  let all = {}; try { all = JSON.parse(localStorage.getItem(SAVED_KEY) || '{}'); } catch {}
+  all[padKey(p)] = map;
+  try { localStorage.setItem(SAVED_KEY, JSON.stringify(all)); $('status').innerHTML = '<b style="color:var(--go)">Saved! The games on this computer will use this layout.</b>'; }
+  catch { $('status').innerHTML = '<span class="warn">This browser blocked saving.</span>'; }
+};
+$('reset').onclick = () => {
+  const p = pad(); if (!p) return;
+  let all = {}; try { all = JSON.parse(localStorage.getItem(SAVED_KEY) || '{}'); } catch {}
+  delete all[padKey(p)];
+  try { localStorage.setItem(SAVED_KEY, JSON.stringify(all)); } catch {}
+  $('status').textContent = 'Saved layout removed; the games use the built-in default again.';
+};
+
+function frame() {
+  const pads = [...navigator.getGamepads()].filter(Boolean);
+  if (padIndex == null && !primed) {
+    // buttons already down when the page opens (or stuck) don't count
+    primed = true;
+    for (const g of pads) g.buttons.forEach((b, i) => b.pressed && prevPressed.add(g.index + ':' + i));
+  } else if (padIndex == null) {
+    // the first controller with a fresh press is the one we set up (ignores mirror copies)
+    for (const g of pads) {
+      const now = new Set(g.buttons.map((b, i) => b.pressed ? g.index + ':' + i : null).filter(Boolean));
+      for (const k of now) if (!prevPressed.has(k)) { padIndex = g.index; break; }
+      if (padIndex != null) break;
+      prevPressed = new Set([...prevPressed].filter(k => !k.startsWith(g.index + ':')).concat([...now]));
+    }
+    if (padIndex != null) {
+      const g = pad();
+      $('pad').innerHTML = `Setting up: <b>${g.id}</b> (${g.axes.length} axes, ${g.buttons.length} buttons)${isV5Pad(g) ? ' — VEX V5 controller' : ''}`;
+      render();
+    }
+  } else {
+    const g = pad();
+    if (g) {
+      const s = STEPS[step];
+      const down = new Set(g.buttons.map((b, i) => (b.pressed || b.value > 0.5) ? i : null).filter(x => x !== null));
+      if (s && s.kind === 'btn') {
+        if (held == null) held = new Set(down);              // ignore anything already held (stuck buttons)
+        for (const i of down) if (!held.has(i)) {
+          const used = Object.entries(map.btn).find(([n]) => +n === i);
+          if (used) { $('sub').innerHTML = `<span class="warn">That button is already ${used[1]}. Press <b>${s.label}</b>.</span>`; held.add(i); break; }
+          map.btn[i] = s.name; next('done'); break;
+        }
+        for (const i of [...(held || [])]) if (!down.has(i)) held.delete(i);
+      } else if (s && s.kind === 'stick') {
+        if (waitCenter) { if (g.axes.every((a, i) => Math.abs(a - (base[i] || 0)) < 0.3)) waitCenter = false; }
+        else {
+          if (!base.length || held == null) { base = [...g.axes]; held = new Set(); }
+          let bestI = -1, bestD = 0;
+          g.axes.forEach((a, i) => { const d = a - base[i]; if (Math.abs(d) > Math.abs(bestD) && !map.ax.includes(i)) { bestD = d; bestI = i; } });
+          if (bestI >= 0 && Math.abs(bestD) > 0.6) { map.ax[s.i] = bestI; map.sg[s.i] = Math.sign(bestD); next('done'); }
+        }
+      } else if (!s) {
+        // live test with the new layout
+        const names = [...down].map(i => map.btn[i]).filter(Boolean);
+        $('live').innerHTML = names.map(n => `<span>${n}</span>`).join('') || '<span style="background:#2a3141;color:var(--muted)">press something</span>';
+        const v = k => map.ax[k] == null ? 0 : (g.axes[map.ax[k]] || 0) * map.sg[k];
+        $('ls').style.transform = `translate(${v(0) * 45}px, ${-v(1) * 45}px)`;
+        $('rs').style.transform = `translate(${v(2) * 45}px, ${-v(3) * 45}px)`;
+      }
+    }
+  }
+  requestAnimationFrame(frame);
+}
+reset();
+$('prompt').textContent = '';
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
