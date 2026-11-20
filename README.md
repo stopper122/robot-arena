@@ -14,15 +14,14 @@ A top-down robot game for younger students, played in the browser with **VEX V5 
 
 `Esc` returns to the player screen, `F` toggles full screen.
 
-## Hooking up V5 controllers
-The V5 controller doesn't show up as a normal game controller on a computer, so a V5 Brain relays it:
+## Plugging in V5 controllers
+No brain or extra program needed. The V5 controller shows up as a game controller over USB:
 
-1. Open `v5/robot_arena_bridge.py` in VEXcode V5, download it to a brain and run it (no motors needed).
-2. Plug the **controller** (paired to that brain) or the **brain** into the computer with USB.
-3. In the game click **Connect V5 controller** and pick the VEX port. If nothing happens within a few seconds, connect again and pick the other VEX port (the brain has two; the game needs the User port).
-4. A partner controller on the same brain becomes a second player.
+1. Turn the V5 controller **off**.
+2. Plug it into the computer with a USB data cable (close VEXcode first).
+3. Press any button so the browser notices it, then press **A** to join.
 
-Works in Chrome or Edge on Windows, Mac or ChromeOS (Web Serial). Close VEXcode first if it is holding the port.
+Works in Chrome or Edge. The V5's button numbering differs from an Xbox pad; the game detects the V5 (vendor 0x2888) and maps it automatically.
 
 ## Running it
 It's a single static page (`index.html`), no build step. Host it anywhere with HTTPS (GitHub Pages) or open it from a local server.
