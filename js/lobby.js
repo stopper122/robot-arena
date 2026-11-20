@@ -30,7 +30,7 @@ export function createLobby(o) {
       <h1>${o.title} <span>${o.tag || ''}</span></h1>
       <p class="how">${o.rules}</p>
       <div class="slots"></div>
-      <div class="join-hint"><b>V5 controller:</b> turn it off, plug it in with USB, press any button.<br>
+      <div class="join-hint"><b>V5 controller:</b> plug it in with USB and press any button.<br>
         Press <kbd>A</kbd> to join (keyboard: <kbd>Space</kbd> or <kbd>Enter</kbd>). <kbd>X</kbd> changes drive style,
         <kbd>B</kbd> leaves. Press <kbd>A</kbd> again when you're ready.${o.hint ? ' ' + o.hint : ''}</div>
       <div class="row">
