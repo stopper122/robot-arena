@@ -39,9 +39,9 @@ function pollKeyboard() {
 // A VEX V5 controller plugged in with USB shows up as a game controller (vendor 2888, product 0503),
 // but its numbering depends on whether the controller is powered on.
 // ON (recorded 2026-11-19 in Chrome on Windows, 4 axes): sticks = axes 0/1 (left) and 2/3 (right), with
-// left/right reversed (+1 = left) and up = -1. In the teacher's Chrome: B=9, X=11 (live test);
-// A=10 and Y=8 are the best guesses. L-up=13 L-down=12, R-up=4 R-down=5, arrows Up=2 Down=0 Left=3 Right=1
-// came from press-count tests. Windows also lists the controller twice (mirrored).
+// left/right reversed (+1 = left) and up = -1. Confirmed 2026-11-19 with controller-setup.html in the
+// teacher's Chrome: A=10 B=9 X=11 Y=8, L-up=13 L-down=12, R-up=4 R-down=5, arrows Up=2 Down=0 Left=3 Right=1.
+// Windows also lists the controller twice (mirrored).
 // If a computer numbers things differently, controller-setup.html saves that computer's own layout.
 // ax = which axis is [left X, left Y, right X, right Y]; sg = multiply so right and up are +.
 const V5_ON = { name: 'V5 controller', ax: [0, 1, 2, 3], sg: [-1, -1, -1, -1],
