@@ -4,587 +4,114 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Robot Arena</title>
+<link rel="stylesheet" href="css/game.css">
 <style>
-  :root {
-    --bg: #12151c; --panel: #1d222d; --ink: #eef1f6; --muted: #9aa3b2;
-    --red: #e5484d; --red-dark: #9b1c20; --blue: #3e8cf0; --blue-dark: #174a8f;
-    --core: #ffd23f; --go: #2fbf71;
-  }
-  * { box-sizing: border-box; }
-  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink);
-    font-family: "Segoe UI", system-ui, -apple-system, sans-serif; overflow: hidden; }
-  canvas { display: block; width: 100vw; height: 100vh; }
-  .overlay { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
-    background: rgba(10, 12, 18, .78); padding: 16px; overflow: auto; }
-  .hidden { display: none !important; }
-  .panel { background: var(--panel); border-radius: 18px; padding: 24px 28px; width: min(980px, 100%);
-    box-shadow: 0 20px 60px rgba(0,0,0,.5); max-height: 100%; overflow: auto; }
-  h1 { margin: 0 0 6px; font-size: 40px; letter-spacing: .5px; }
-  h1 span { color: var(--core); }
-  .how { font-size: 19px; color: #d5dae3; margin: 4px 0 16px; line-height: 1.45; }
-  .how b { color: var(--ink); }
-  .slots { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
-  .slot { border-radius: 14px; padding: 14px; min-height: 150px; background: #262c39; border: 3px dashed #3a4253;
-    display: flex; flex-direction: column; gap: 6px; }
-  .slot.red { background: linear-gradient(160deg, #4a1d22, #2a1a20); border: 3px solid var(--red); }
-  .slot.blue { background: linear-gradient(160deg, #1b2f52, #18202e); border: 3px solid var(--blue); }
-  .slot .pn { font-size: 26px; font-weight: 800; }
-  .slot .src { font-size: 13px; color: var(--muted); min-height: 2.4em; }
-  .slot .empty { color: var(--muted); font-size: 16px; margin: auto 0; text-align: center; }
-  .slot .chips { display: flex; gap: 6px; flex-wrap: wrap; margin-top: auto; }
-  .chip { font: inherit; font-size: 14px; border: 0; border-radius: 999px; padding: 5px 11px; cursor: pointer;
-    background: #3a4253; color: var(--ink); }
-  .chip.team.red { background: var(--red); } .chip.team.blue { background: var(--blue); }
-  .ready { font-weight: 800; font-size: 18px; color: var(--go); }
-  .notready { font-size: 15px; color: var(--muted); }
-  .dead { color: #ff8f8f; font-size: 13px; }
-  .join-hint { margin: 14px 0; font-size: 16px; color: #cfd5df; }
-  kbd { background: #394154; border-radius: 6px; padding: 1px 7px; font-family: inherit; font-weight: 700; color: #fff; }
-  .row { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
-  button.big, select { font: inherit; font-size: 17px; border-radius: 10px; border: 0; padding: 10px 16px; cursor: pointer;
-    background: #394154; color: var(--ink); }
-  button.go { background: var(--go); color: #062b16; font-weight: 800; margin-left: auto; }
-  label { font-size: 15px; color: var(--muted); display: flex; gap: 8px; align-items: center; }
-  .status { margin-top: 10px; font-size: 14px; color: var(--muted); min-height: 1.2em; }
-  .status .ok { color: var(--go); } .status .warn { color: #ffb347; }
-  details { margin-top: 12px; font-size: 15px; color: #cfd5df; line-height: 1.5; }
-  summary { cursor: pointer; color: var(--ink); font-weight: 600; }
-  details a { color: #8cc4ff; }
-  .end h1 { font-size: 56px; text-align: center; }
-  .scores { display: flex; justify-content: center; gap: 40px; margin: 12px 0 18px; font-size: 64px; font-weight: 900; }
-  .scores .r { color: var(--red); } .scores .b { color: var(--blue); }
-  .stats { width: 100%; border-collapse: collapse; font-size: 17px; margin-bottom: 18px; }
-  .stats td, .stats th { padding: 6px 10px; text-align: center; border-bottom: 1px solid #333b4b; }
-  .center { justify-content: center; }
-  @media (max-width: 760px) { .slots { grid-template-columns: repeat(2, 1fr); } h1 { font-size: 30px; } }
+  body { overflow: auto; background: radial-gradient(1200px 600px at 50% -10%, #263049, var(--bg)); }
+  main { max-width: 1180px; margin: 0 auto; padding: 28px 16px 40px; }
+  header h1 { font-size: 52px; margin: 0; }
+  header p { color: #cfd5df; font-size: 19px; margin: 6px 0 22px; line-height: 1.5; }
+  .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
+  .card { background: var(--panel); border-radius: 18px; overflow: hidden; text-decoration: none; color: var(--ink);
+    border: 4px solid transparent; transition: transform .12s, border-color .12s; display: flex; flex-direction: column; }
+  .card:hover, .card.sel { border-color: var(--core); transform: translateY(-4px); }
+  .card svg { display: block; width: 100%; height: auto; background: #2a3141; }
+  .card .body { padding: 14px 16px 16px; display: flex; flex-direction: column; gap: 6px; flex: 1; }
+  .card h2 { margin: 0; font-size: 26px; }
+  .tags { display: flex; gap: 6px; flex-wrap: wrap; }
+  .tag { font-size: 13px; font-weight: 700; padding: 3px 9px; border-radius: 999px; background: #394154; }
+  .tag.easy { background: #1f6f45; } .tag.med { background: #8a5a00; } .tag.hard { background: #8b1d24; }
+  .tag.d3 { background: #3a3f9e; }
+  .card p { margin: 0; color: #cfd5df; font-size: 15.5px; line-height: 1.45; }
+  .help { margin-top: 26px; background: var(--panel); border-radius: 16px; padding: 16px 20px; color: #cfd5df; font-size: 16px; line-height: 1.6; }
+  .help h3 { margin: 0 0 6px; color: var(--ink); }
+  @media (max-width: 980px) { .grid { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 560px) { .grid { grid-template-columns: 1fr; } header h1 { font-size: 36px; } }
 </style>
 </head>
 <body>
-<canvas id="c"></canvas>
-
-<div id="lobby" class="overlay">
-  <div class="panel">
-    <h1>Robot Arena <span>Core Rush</span></h1>
-    <p class="how">Drive into the <b style="color:var(--core)">yellow cores</b> to pick them up (you can carry 2).
-      Shoot them into <b>your team's goal</b>: <b style="color:var(--red)">Red</b> scores on the right,
-      <b style="color:var(--blue)">Blue</b> scores on the left. Shot in = <b>3 points</b>, pushed in = <b>1 point</b>.</p>
-    <div id="slots" class="slots"></div>
-    <div class="join-hint"><b>V5 controller:</b> turn it off, plug it in with USB, press any button.<br>
-      Press <kbd>A</kbd> on a controller to join (keyboard: <kbd>Space</kbd> or <kbd>Enter</kbd>).
-      <kbd>X</kbd> changes drive style, <kbd>B</kbd> leaves. Press <kbd>A</kbd> again when you're ready.
-      Shoot with <kbd>R1</kbd> / <kbd>R2</kbd> / <kbd>L1</kbd> / <kbd>L2</kbd>.</div>
-    <div class="row">
-      <label>Match <select id="selTime">
-        <option value="30">30 s</option><option value="60" selected>60 s</option>
-        <option value="90">90 s</option><option value="120">2 min</option>
-        <option value="0">Practice (no timer)</option></select></label>
-      <label>Robot speed <select id="selSpeed">
-        <option value="slow">Rookie</option><option value="normal" selected>Normal</option>
-        <option value="fast">Turbo</option></select></label>
-      <button id="btnStart" class="big go">Start match ▶</button>
-    </div>
-    <div id="status" class="status"></div>
-    <details>
-      <summary>How to plug in VEX V5 controllers</summary>
-      <ol>
-        <li>Turn the V5 controller <b>off</b>.</li>
-        <li>Plug it into this computer with a USB cable (the data cable VEXcode uses). Close VEXcode first.</li>
-        <li>Press any button on the controller so the browser notices it, then press <b>A</b> to join.</li>
-      </ol>
-      Use Chrome or Edge. Xbox-style USB/Bluetooth gamepads and the keyboard work too:
-      Keyboard 1 = <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> + <kbd>Space</kbd>, Keyboard 2 = arrows + <kbd>Enter</kbd>.
-      <kbd>Esc</kbd> during a match returns here, <kbd>F</kbd> toggles full screen.
-    </details>
+<main>
+  <header>
+    <h1>Robot Arena</h1>
+    <p>Pick a game. Use a <b>V5 controller</b>, a gamepad, or the keyboard. Move with the arrows or joystick, press <kbd>A</kbd> to play.</p>
+  </header>
+  <div class="grid" id="grid">
+    <a class="card" href="gem-hunt.html">
+      <svg viewBox="0 0 320 180" aria-hidden="true">
+        <rect width="320" height="180" fill="#7d8597"/><path d="M0 120 L320 120" stroke="#ffffff22"/>
+        <g transform="translate(70 95)"><polygon points="0,-16 12,0 0,16 -12,0" fill="#4dd2ff"/></g>
+        <g transform="translate(250 60)"><polygon points="0,-14 10,0 0,14 -10,0" fill="#ff4d6d"/></g>
+        <g transform="translate(200 130)"><polygon points="0,-20 15,0 0,20 -15,0" fill="#ffc93c"/></g>
+        <g transform="translate(110 40)"><polygon points="0,-12 9,0 0,12 -9,0" fill="#9b5de5"/></g>
+        <rect x="128" y="78" width="44" height="40" rx="6" fill="#e5484d" stroke="#9b1c20" stroke-width="3"/>
+        <rect x="168" y="80" width="8" height="36" rx="2" fill="#2b2f38"/><polygon points="160,98 148,90 148,106" fill="#fff"/>
+      </svg>
+      <div class="body"><div class="tags"><span class="tag easy">★ Easy</span><span class="tag d3">3D</span><span class="tag">1–4 players</span></div>
+        <h2>Gem Hunt</h2><p>Drive over sparkly gems to collect them. Gold gems are worth 3! Great first game.</p></div>
+    </a>
+    <a class="card" href="sumo.html">
+      <svg viewBox="0 0 320 180" aria-hidden="true">
+        <rect width="320" height="180" fill="#151a25"/><ellipse cx="160" cy="100" rx="130" ry="62" fill="#4a5163"/>
+        <ellipse cx="160" cy="100" rx="122" ry="56" fill="none" stroke="#ffd23f" stroke-width="4"/>
+        <rect x="104" y="80" width="44" height="36" rx="6" fill="#3e8cf0" stroke="#174a8f" stroke-width="3"/>
+        <rect x="174" y="76" width="44" height="36" rx="6" fill="#2fbf71" stroke="#167a45" stroke-width="3"/>
+        <path d="M152 90 l14 6 l-14 6" stroke="#fff" stroke-width="4" fill="none"/>
+      </svg>
+      <div class="body"><div class="tags"><span class="tag med">★★ Medium</span><span class="tag d3">3D</span><span class="tag">1–4 + CPU</span></div>
+        <h2>Sumo Bots</h2><p>Push the other robots off the shrinking ring. Play friends or a CPU robot.</p></div>
+    </a>
+    <a class="card" href="core-rush.html">
+      <svg viewBox="0 0 320 180" aria-hidden="true">
+        <rect width="320" height="180" fill="#8d95a3"/><path d="M160 0 V180" stroke="#fff" stroke-dasharray="6 6"/>
+        <circle cx="30" cy="90" r="20" fill="#3e8cf055" stroke="#3e8cf0" stroke-width="4"/>
+        <circle cx="290" cy="90" r="20" fill="#e5484d55" stroke="#e5484d" stroke-width="4"/>
+        <circle cx="160" cy="40" r="8" fill="#ffd23f"/><circle cx="160" cy="140" r="8" fill="#ffd23f"/><circle cx="220" cy="80" r="8" fill="#ffd23f"/>
+        <rect x="80" y="70" width="40" height="40" rx="6" fill="#e5484d" stroke="#9b1c20" stroke-width="3"/>
+        <path d="M126 90 H200" stroke="#ffd23f" stroke-width="3" stroke-dasharray="4 6"/>
+      </svg>
+      <div class="body"><div class="tags"><span class="tag med">★★ Medium</span><span class="tag">2D</span><span class="tag">Red vs Blue</span></div>
+        <h2>Core Rush</h2><p>Grab cores and shoot them into your team's goal. Teamwork and aiming.</p></div>
+    </a>
+    <a class="card" href="skills.html">
+      <svg viewBox="0 0 320 180" aria-hidden="true">
+        <rect width="320" height="180" fill="#7d8597"/>
+        <g fill="#fff"><circle cx="60" cy="40" r="6"/><circle cx="100" cy="40" r="6"/><circle cx="180" cy="120" r="6"/><circle cx="220" cy="120" r="6"/><circle cx="250" cy="40" r="6"/><circle cx="290" cy="40" r="6"/></g>
+        <g fill="#ff8a3d"><polygon points="140,70 148,90 132,90"/><polygon points="200,60 208,80 192,80"/></g>
+        <path d="M30 150 C 60 60, 110 20, 150 80 S 220 150, 270 40" stroke="#2fbf71" stroke-width="4" fill="none" stroke-dasharray="8 6"/>
+        <rect x="10" y="130" width="40" height="40" fill="#fff" opacity=".6"/>
+      </svg>
+      <div class="body"><div class="tags"><span class="tag hard">★★★ Hard</span><span class="tag d3">3D</span><span class="tag">Time trial</span></div>
+        <h2>Skills Course</h2><p>Drive through numbered gates in order, dodge cones, and park to stop the clock.</p></div>
+    </a>
   </div>
-</div>
-
-<div id="end" class="overlay hidden">
-  <div class="panel end">
-    <h1 id="endTitle">Red wins!</h1>
-    <div class="scores"><span class="r" id="endRed">0</span><span>–</span><span class="b" id="endBlue">0</span></div>
-    <table class="stats" id="endStats"></table>
-    <div class="row center">
-      <button id="btnAgain" class="big go" style="margin-left:0">Play again (A)</button>
-      <button id="btnLobby" class="big">Change players (B)</button>
-    </div>
+  <div class="help">
+    <h3>Plugging in VEX V5 controllers</h3>
+    Plug the V5 controller into the computer with a USB data cable (close VEXcode first) and press any button so the browser notices it.
+    It works turned on or off. Use Chrome or Edge. Xbox-style gamepads work too, and two players can share the keyboard:
+    <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> + <kbd>Space</kbd> and arrows + <kbd>Enter</kbd>.
+    <kbd>F</kbd> = full screen for the projector.
   </div>
-</div>
-
-<script>
-'use strict';
-// ---------- constants (field units are inches; a VEX field is 144" = 12 ft) ----------
-const FIELD = 144, R_ROBOT = 10.5, R_BALL = 3.5, GOAL_R = 10, POST_R = 5, MAX_HELD = 2;
-const GOALS = { red: { x: 130, y: 72 }, blue: { x: 14, y: 72 } };
-const BTN = ['L1', 'L2', 'R1', 'R2', 'Up', 'Down', 'Left', 'Right', 'X', 'B', 'Y', 'A'];
-const SHOOT = ['R1', 'R2', 'L1', 'L2'];
-const SPEEDS = { slow: { v: 38, w: 2.4 }, normal: { v: 58, w: 3.3 }, fast: { v: 80, w: 4.2 } };
-const MODES = ['1-Stick', '2-Stick', 'Tank'];
-const MODE_HELP = ['Left stick drives', 'Left stick = go, right stick = turn', 'Left stick = left side, right stick = right side'];
-const COLORS = { red: ['#e5484d', '#9b1c20'], blue: ['#3e8cf0', '#174a8f'] };
-const STARTS = { red: [[26, 40, 0], [26, 104, 0]], blue: [[118, 40, Math.PI], [118, 104, Math.PI]] };
-const BALL_START = [[72, 20], [72, 46], [72, 72], [72, 98], [72, 124], [50, 30], [50, 114], [94, 30], [94, 114],
-  [46, 72], [98, 72], [32, 56], [32, 88], [112, 56], [112, 88], [60, 86], [84, 58]];
-
-// ---------- input sources ----------
-// Every input device becomes a "source": sticks in -1..1 (up = +), and a set of pressed button names.
-const sources = new Map();
-function getSource(key, label, kind) {
-  let s = sources.get(key);
-  if (!s) { s = { key, label, kind, lx: 0, ly: 0, rx: 0, ry: 0, btn: new Set(), prev: new Set(), alive: true, seen: 0 }; sources.set(key, s); }
-  return s;
-}
-const pressed = (s, b) => s.btn.has(b) && !s.prev.has(b);
-const dead = v => Math.abs(v) < 0.07 ? 0 : v;
-
-const keys = new Set(), taps = new Set(); // taps: keys pressed since the last frame, so quick taps still count
-addEventListener('keydown', e => {
-  if (['Space', 'Enter', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) e.preventDefault();
-  keys.add(e.code); taps.add(e.code); unlockAudio();
-  if (e.code === 'Escape' && state !== 'lobby') toLobby();
-  if (e.code === 'KeyF') toggleFull();
-});
-addEventListener('keyup', e => keys.delete(e.code));
-addEventListener('blur', () => keys.clear());
-addEventListener('pointerdown', unlockAudio);
-
-function pollKeyboard() {
-  const down = c => keys.has(c) || taps.has(c);
-  const k = c => down(c) ? 1 : 0;
-  const a = getSource('kb1', 'Keyboard: W A S D + Space', 'kb');
-  a.ly = k('KeyW') - k('KeyS'); a.lx = k('KeyD') - k('KeyA'); a.btn = new Set();
-  if (down('Space')) { a.btn.add('A'); a.btn.add('R1'); }
-  if (down('KeyQ')) a.btn.add('B');
-  const b = getSource('kb2', 'Keyboard: arrows + Enter', 'kb');
-  b.ly = k('ArrowUp') - k('ArrowDown'); b.lx = k('ArrowRight') - k('ArrowLeft'); b.btn = new Set();
-  if (down('Enter') || down('NumpadEnter')) { b.btn.add('A'); b.btn.add('R1'); }
-  if (down('Backspace')) b.btn.add('B');
-  taps.clear();
-}
-
-// Gamepads. A VEX V5 controller (turned OFF, plugged in with USB) shows up as a game controller
-// with its own numbering (from the robot-field-sim controller test, Chrome on Windows):
-// left stick = axes 0/1, right stick = axes 2/5, B=0 A=1 Y=2 X=3 L1=4 R1=5 L2=6 R2=7, arrows = 12-15
-// and also a "hat" on axis 9 (up -1, right -0.43, down 0.14, left 0.71, up-left 1, down-right -0.14).
-const V5_PAD = { name: 'V5 controller', rY: 5, btn: { 0: 'B', 1: 'A', 2: 'Y', 3: 'X', 4: 'L1', 5: 'R1', 6: 'L2', 7: 'R2', 12: 'Up', 13: 'Down', 14: 'Left', 15: 'Right' },
-  hat: { axis: 9, Up: [-1, 1], Right: [-0.43, -0.14], Down: [0.14, -0.14], Left: [0.71, 1] } };
-// Everything else uses the browser's standard layout (Xbox, PlayStation, Switch Pro, Logitech...).
-const STD_PAD = { name: null, rY: 3, btn: { 0: 'A', 1: 'B', 2: 'X', 3: 'Y', 4: 'L1', 5: 'R1', 6: 'L2', 7: 'R2', 12: 'Up', 13: 'Down', 14: 'Left', 15: 'Right' } };
-const isV5Pad = gp => /2888/.test(gp.id) && /0?503|V5/i.test(gp.id);
-function pollGamepads() {
-  const seen = new Set();
-  for (const gp of (navigator.getGamepads ? navigator.getGamepads() : [])) {
-    if (!gp || !gp.connected) continue;
-    const pf = isV5Pad(gp) ? V5_PAD : STD_PAD;
-    const name = pf.name || gp.id.replace(/\(.*?\)/g, '').trim().slice(0, 28) || 'Gamepad';
-    const s = getSource('gp' + gp.index, `Controller ${gp.index + 1}: ${name}`, 'gp');
-    seen.add(s.key); s.alive = true;
-    s.lx = dead(gp.axes[0] || 0); s.ly = -dead(gp.axes[1] || 0);
-    s.rx = dead(gp.axes[2] || 0); s.ry = -dead(gp.axes[pf.rY] || 0);
-    s.btn = new Set();
-    gp.buttons.forEach((b, i) => { if ((b.pressed || b.value > 0.5) && pf.btn[i]) s.btn.add(pf.btn[i]); });
-    if (pf.hat && gp.axes.length > pf.hat.axis) {
-      const h = gp.axes[pf.hat.axis];
-      for (const k of ['Up', 'Right', 'Down', 'Left']) if (pf.hat[k].some(v => Math.abs(h - v) < 0.1)) s.btn.add(k);
-    }
-  }
-  for (const s of sources.values()) if (s.kind === 'gp' && !seen.has(s.key)) { s.alive = false; s.btn = new Set(); s.lx = s.ly = s.rx = s.ry = 0; }
-}
-
-function setStatus(html) { document.getElementById('status').innerHTML = html; }
-
-// ---------- audio ----------
-let actx = null;
-function unlockAudio() { if (!actx) { try { actx = new AudioContext(); } catch {} } else if (actx.state === 'suspended') actx.resume(); }
-function tone(freq, dur, type = 'sine', vol = 0.15, slide = 0, delay = 0) {
-  if (!actx) return;
-  const t = actx.currentTime + delay, o = actx.createOscillator(), g = actx.createGain();
-  o.type = type; o.frequency.setValueAtTime(freq, t);
-  if (slide) o.frequency.exponentialRampToValueAtTime(freq * slide, t + dur);
-  g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-  o.connect(g).connect(actx.destination); o.start(t); o.stop(t + dur + 0.02);
-}
-const sfx = {
-  beep: () => tone(660, 0.18, 'square', 0.08),
-  go: () => { tone(880, 0.5, 'square', 0.1); tone(440, 0.5, 'sawtooth', 0.06); },
-  shoot: () => tone(220, 0.12, 'triangle', 0.2, 0.5),
-  grab: () => tone(520, 0.07, 'sine', 0.12, 1.5),
-  score3: () => { tone(784, 0.12, 'square', 0.08); tone(1047, 0.12, 'square', 0.08, 0, 0.1); tone(1319, 0.22, 'square', 0.08, 0, 0.2); },
-  score1: () => tone(880, 0.15, 'square', 0.07),
-  end: () => { tone(330, 0.9, 'sawtooth', 0.1); tone(247, 0.9, 'square', 0.06); },
-  join: () => { tone(523, 0.08, 'square', 0.07); tone(784, 0.12, 'square', 0.07, 0, 0.08); },
-};
-
-// ---------- players & lobby ----------
-const players = []; // {src, team, mode, ready, num}
-function teamCounts() { const c = { red: 0, blue: 0 }; players.forEach(p => c[p.team]++); return c; }
-function join(s) {
-  if (players.length >= 4 || players.some(p => p.src === s.key)) return;
-  const c = teamCounts();
-  const team = c.red <= c.blue ? 'red' : 'blue';
-  players.push({ src: s.key, team, mode: 0, ready: false });
-  renumber(); sfx.join(); renderLobby();
-}
-function leave(p) { players.splice(players.indexOf(p), 1); renumber(); renderLobby(); }
-function renumber() { players.forEach((p, i) => p.num = i + 1); }
-function setTeam(p, team) {
-  if (p.team === team) return;
-  if (players.filter(q => q.team === team).length >= 2) return; // max 2 per team
-  p.team = team; renderLobby();
-}
-
-function renderLobby() {
-  const el = document.getElementById('slots');
-  let html = '';
-  for (let i = 0; i < 4; i++) {
-    const p = players[i];
-    if (!p) { html += `<div class="slot"><div class="pn" style="color:var(--muted)">P${i + 1}</div><div class="empty">Press <kbd>A</kbd> to join</div></div>`; continue; }
-    const s = sources.get(p.src);
-    const kb = s.kind === 'kb';
-    html += `<div class="slot ${p.team}">
-      <div class="pn">P${p.num}</div>
-      <div class="src">${s.label}${s.alive ? '' : '<div class="dead">disconnected</div>'}</div>
-      ${p.ready ? '<div class="ready">READY!</div>' : '<div class="notready">press A when ready</div>'}
-      <div class="chips">
-        <button class="chip team ${p.team}" data-i="${i}" data-act="team">${p.team === 'red' ? 'Red' : 'Blue'} team ⇄</button>
-        <button class="chip" data-i="${i}" data-act="mode" title="${kb ? 'Keyboard always uses 1-stick' : MODE_HELP[p.mode]}">${kb ? 'Keyboard' : MODES[p.mode]}</button>
-        <button class="chip" data-i="${i}" data-act="leave">✕</button>
-      </div></div>`;
-  }
-  el.innerHTML = html;
-}
-document.getElementById('slots').addEventListener('click', e => {
-  const b = e.target.closest('button'); if (!b) return;
-  const p = players[+b.dataset.i]; if (!p) return;
-  if (b.dataset.act === 'team') setTeam(p, p.team === 'red' ? 'blue' : 'red');
-  if (b.dataset.act === 'mode') { p.mode = (p.mode + 1) % 3; renderLobby(); }
-  if (b.dataset.act === 'leave') leave(p);
-});
-document.getElementById('btnStart').onclick = () => { unlockAudio(); startMatch(); };
-document.getElementById('btnAgain').onclick = () => startMatch();
-document.getElementById('btnLobby').onclick = () => toLobby();
-
-function lobbyInput() {
-  let changed = false;
-  for (const s of sources.values()) {
-    const p = players.find(q => q.src === s.key);
-    if (!p) { if (pressed(s, 'A')) join(s); continue; }
-    if (pressed(s, 'A')) { p.ready = !p.ready; p.ready && sfx.beep(); changed = true; }
-    if (pressed(s, 'X') && s.kind !== 'kb') { p.mode = (p.mode + 1) % 3; changed = true; }
-    if (pressed(s, 'Left')) { setTeam(p, 'red'); }
-    if (pressed(s, 'Right')) { setTeam(p, 'blue'); }
-    if (pressed(s, 'B')) { leave(p); return; }
-  }
-  if (changed) renderLobby();
-  if (players.length && players.every(p => p.ready)) startMatch();
-}
-
-// ---------- match ----------
-let state = 'lobby', robots = [], balls = [], popups = [], score = { red: 0, blue: 0 };
-let matchLen = 60, timeLeft = 60, countdown = 0, lastBeep = 0, speed = SPEEDS.normal;
-
-function startMatch() {
-  if (!players.length) { setStatus('<span class="warn">Join at least one player first.</span>'); return; }
-  matchLen = +document.getElementById('selTime').value;
-  speed = SPEEDS[document.getElementById('selSpeed').value];
-  timeLeft = matchLen; score = { red: 0, blue: 0 }; popups = [];
-  const used = { red: 0, blue: 0 };
-  robots = players.map(p => {
-    const [x, y, th] = STARTS[p.team][used[p.team]++ % 2];
-    return { p, x, y, th, v: 0, w: 0, held: 0, cool: 0, points: 0, shots: 0, made: 0 };
-  });
-  balls = BALL_START.map(([x, y]) => ({ x, y, vx: 0, vy: 0, st: 'roll', t: 0, by: null }));
-  players.forEach(p => p.ready = false);
-  document.getElementById('lobby').classList.add('hidden');
-  document.getElementById('end').classList.add('hidden');
-  state = 'countdown'; countdown = 3.999; lastBeep = 4;
-}
-function toLobby() {
-  state = 'lobby'; players.forEach(p => p.ready = false); renderLobby();
-  document.getElementById('end').classList.add('hidden');
-  document.getElementById('lobby').classList.remove('hidden');
-}
-function endMatch() {
-  state = 'end'; sfx.end();
-  const t = document.getElementById('endTitle');
-  t.textContent = score.red > score.blue ? 'Red wins!' : score.blue > score.red ? 'Blue wins!' : "It's a tie!";
-  t.style.color = score.red > score.blue ? 'var(--red)' : score.blue > score.red ? 'var(--blue)' : 'var(--core)';
-  document.getElementById('endRed').textContent = score.red;
-  document.getElementById('endBlue').textContent = score.blue;
-  document.getElementById('endStats').innerHTML = '<tr><th>Player</th><th>Team</th><th>Shots</th><th>Shots in</th><th>Points scored</th></tr>' +
-    robots.map(r => `<tr><td><b>P${r.p.num}</b></td><td style="color:var(--${r.p.team})">${r.p.team === 'red' ? 'Red' : 'Blue'}</td><td>${r.shots}</td><td>${r.made}</td><td>${r.points}</td></tr>`).join('');
-  document.getElementById('end').classList.remove('hidden');
-}
-
-function driveTargets(r) {
-  const s = sources.get(r.p.src);
-  if (!s || !s.alive) return [0, 0];
-  let fwd, turn;
-  const mode = s.kind === 'kb' ? 0 : r.p.mode;
-  if (mode === 0) { fwd = s.ly; turn = s.lx; }
-  else if (mode === 1) { fwd = s.ly; turn = s.rx; }
-  else { fwd = (s.ly + s.ry) / 2; turn = (s.ly - s.ry) / 2; }
-  // gentler response near the middle of the stick makes aiming easier for small hands
-  const curve = v => Math.sign(v) * Math.abs(v) ** 1.4;
-  return [curve(Math.max(-1, Math.min(1, fwd))) * speed.v, curve(Math.max(-1, Math.min(1, turn))) * speed.w];
-}
-
-function shoot(r) {
-  if (r.held <= 0 || r.cool > 0) return;
-  r.held--; r.cool = 0.35; r.shots++;
-  const c = Math.cos(r.th), s = Math.sin(r.th), d = R_ROBOT + R_BALL + 1;
-  const sp = 125 + Math.max(0, r.v);
-  balls.push({ x: r.x + c * d, y: r.y + s * d, vx: c * sp, vy: s * sp, st: 'fly', t: 0.55, by: r });
-  sfx.shoot();
-}
-
-function respawnBall(b) {
-  for (let tries = 0; tries < 30; tries++) {
-    const x = 52 + Math.random() * 40, y = 12 + Math.random() * 120;
-    if (robots.every(r => Math.hypot(r.x - x, r.y - y) > R_ROBOT + 8) && balls.every(o => o === b || o.st === 'gone' || Math.hypot(o.x - x, o.y - y) > 8)) {
-      Object.assign(b, { x, y, vx: 0, vy: 0, st: 'roll', t: 0, pop: 0.4 }); return;
-    }
-  }
-  Object.assign(b, { x: 72, y: 72, vx: 0, vy: 0, st: 'roll', t: 0, pop: 0.4 });
-}
-
-function step(dt) {
-  // robots
-  for (const r of robots) {
-    const [tv, tw] = driveTargets(r);
-    const acc = speed.v * 5 * dt, wacc = speed.w * 7 * dt;
-    r.v += Math.max(-acc, Math.min(acc, tv - r.v));
-    r.w += Math.max(-wacc, Math.min(wacc, tw - r.w));
-    r.th += r.w * dt;
-    r.x += Math.cos(r.th) * r.v * dt; r.y += Math.sin(r.th) * r.v * dt;
-    r.cool = Math.max(0, r.cool - dt);
-    const s = sources.get(r.p.src);
-    if (s && SHOOT.some(b => s.btn.has(b))) shoot(r);
-  }
-  // robot vs robot / goal posts / walls
-  for (let i = 0; i < robots.length; i++) {
-    const a = robots[i];
-    for (let j = i + 1; j < robots.length; j++) {
-      const b = robots[j], dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy) || 0.01, o = 2 * R_ROBOT - d;
-      if (o > 0) { const nx = dx / d, ny = dy / d; a.x -= nx * o / 2; a.y -= ny * o / 2; b.x += nx * o / 2; b.y += ny * o / 2; }
-    }
-    for (const g of Object.values(GOALS)) {
-      const dx = a.x - g.x, dy = a.y - g.y, d = Math.hypot(dx, dy) || 0.01, o = R_ROBOT + POST_R - d;
-      if (o > 0) { a.x += dx / d * o; a.y += dy / d * o; }
-    }
-    a.x = Math.max(R_ROBOT, Math.min(FIELD - R_ROBOT, a.x));
-    a.y = Math.max(R_ROBOT, Math.min(FIELD - R_ROBOT, a.y));
-  }
-  // balls
-  for (const b of balls) {
-    if (b.st === 'gone') { if ((b.t -= dt) <= 0) respawnBall(b); continue; }
-    if (b.pop) b.pop = Math.max(0, b.pop - dt);
-    b.x += b.vx * dt; b.y += b.vy * dt;
-    const f = Math.exp((b.st === 'fly' ? -0.5 : -2.2) * dt);
-    b.vx *= f; b.vy *= f;
-    if (Math.hypot(b.vx, b.vy) < 1.5) b.vx = b.vy = 0;
-    if (b.st === 'fly' && (b.t -= dt) <= 0) b.st = 'roll';
-    if (b.x < R_BALL) { b.x = R_BALL; b.vx = Math.abs(b.vx) * 0.6; }
-    if (b.x > FIELD - R_BALL) { b.x = FIELD - R_BALL; b.vx = -Math.abs(b.vx) * 0.6; }
-    if (b.y < R_BALL) { b.y = R_BALL; b.vy = Math.abs(b.vy) * 0.6; }
-    if (b.y > FIELD - R_BALL) { b.y = FIELD - R_BALL; b.vy = -Math.abs(b.vy) * 0.6; }
-    // scoring
-    for (const [team, g] of Object.entries(GOALS)) {
-      if (Math.hypot(b.x - g.x, b.y - g.y) < GOAL_R) {
-        const pts = b.st === 'fly' ? 3 : 1;
-        score[team] += pts;
-        if (b.by) { if (b.by.p.team === team) b.by.points += pts; if (pts === 3 && b.by.p.team === team) b.by.made++; }
-        popups.push({ x: g.x, y: g.y - 6, text: '+' + pts, color: COLORS[team][0], t: 1.2 });
-        (pts === 3 ? sfx.score3 : sfx.score1)();
-        b.st = 'gone'; b.t = 1.5; b.by = null;
-        break;
-      }
-    }
-    if (b.st !== 'roll') continue;
-    // robots: intake from the front, otherwise push
-    for (const r of robots) {
-      const c = Math.cos(r.th), s = Math.sin(r.th);
-      const fx = r.x + c * 9, fy = r.y + s * 9;
-      if (r.held < MAX_HELD && Math.hypot(b.x - fx, b.y - fy) < R_BALL + 5) {
-        r.held++; b.st = 'gone'; b.t = 1e9; b.held = r; sfx.grab(); break;
-      }
-      const dx = b.x - r.x, dy = b.y - r.y, d = Math.hypot(dx, dy) || 0.01, o = R_ROBOT + R_BALL - d;
-      if (o > 0) {
-        const nx = dx / d, ny = dy / d;
-        b.x += nx * o; b.y += ny * o;
-        const rv = (c * nx + s * ny) * r.v; // robot speed toward the ball
-        const bv = b.vx * nx + b.vy * ny;
-        if (bv < rv * 1.1) { b.vx += nx * (rv * 1.1 - bv); b.vy += ny * (rv * 1.1 - bv); }
-        b.by = r;
-      }
-    }
-  }
-  // ball vs ball (rolling only)
-  const rolling = balls.filter(b => b.st === 'roll');
-  for (let i = 0; i < rolling.length; i++) for (let j = i + 1; j < rolling.length; j++) {
-    const a = rolling[i], b = rolling[j], dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy);
-    if (d > 0 && d < 2 * R_BALL) {
-      const nx = dx / d, ny = dy / d, o = 2 * R_BALL - d;
-      a.x -= nx * o / 2; a.y -= ny * o / 2; b.x += nx * o / 2; b.y += ny * o / 2;
-      const va = a.vx * nx + a.vy * ny, vb = b.vx * nx + b.vy * ny;
-      if (va - vb > 0) { a.vx += (vb - va) * nx; a.vy += (vb - va) * ny; b.vx += (va - vb) * nx; b.vy += (va - vb) * ny; }
-    }
-  }
-  // held balls live on the robot; keep their objects around so the total stays constant
-  for (const r of robots) {
-    const onBoard = balls.filter(b => b.held === r && b.st === 'gone').length;
-    if (onBoard > r.held) { // a shot ball was pushed as a new object; drop one placeholder
-      const ph = balls.find(b => b.held === r && b.st === 'gone');
-      balls.splice(balls.indexOf(ph), 1);
-    }
-  }
-  popups.forEach(p => p.t -= dt); popups = popups.filter(p => p.t > 0);
-}
-
-// ---------- drawing ----------
-const cv = document.getElementById('c'), ctx = cv.getContext('2d');
-let W = 0, H = 0, S = 1, OX = 0, OY = 0;
-const HUD = 76;
-function resize() {
-  const dpr = devicePixelRatio || 1;
-  W = innerWidth; H = innerHeight;
-  cv.width = W * dpr; cv.height = H * dpr; ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  const size = Math.min(W - 24, H - HUD - 16);
-  S = size / FIELD; OX = (W - size) / 2; OY = HUD + 4;
-}
-addEventListener('resize', resize); resize();
-function toggleFull() { document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen().catch(() => {}); }
-
-function rr(x, y, w, h, r) { ctx.beginPath(); ctx.roundRect(x, y, w, h, r); }
-
-function drawField() {
-  ctx.save(); ctx.translate(OX, OY); ctx.scale(S, S);
-  // tiles
-  for (let i = 0; i < 6; i++) for (let j = 0; j < 6; j++) {
-    ctx.fillStyle = (i + j) % 2 ? '#8d95a3' : '#949cab'; ctx.fillRect(i * 24, j * 24, 24, 24);
-  }
-  ctx.strokeStyle = 'rgba(255,255,255,.12)'; ctx.lineWidth = 0.4;
-  for (let i = 1; i < 6; i++) { ctx.beginPath(); ctx.moveTo(i * 24, 0); ctx.lineTo(i * 24, FIELD); ctx.moveTo(0, i * 24); ctx.lineTo(FIELD, i * 24); ctx.stroke(); }
-  // center line
-  ctx.strokeStyle = '#fff'; ctx.lineWidth = 1; ctx.setLineDash([3, 3]);
-  ctx.beginPath(); ctx.moveTo(72, 0); ctx.lineTo(72, FIELD); ctx.stroke(); ctx.setLineDash([]);
-  // goals
-  for (const [team, g] of Object.entries(GOALS)) {
-    ctx.fillStyle = team === 'red' ? 'rgba(229,72,77,.35)' : 'rgba(62,140,240,.35)';
-    ctx.beginPath(); ctx.arc(g.x, g.y, GOAL_R, 0, Math.PI * 2); ctx.fill();
-    ctx.strokeStyle = COLORS[team][0]; ctx.lineWidth = 2.2; ctx.stroke();
-    ctx.fillStyle = COLORS[team][1]; ctx.beginPath(); ctx.arc(g.x, g.y, POST_R, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = '#fff'; ctx.font = 'bold 4px Segoe UI, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText('GOAL', g.x, g.y + GOAL_R + 4);
-  }
-  // walls
-  ctx.strokeStyle = '#d7dce4'; ctx.lineWidth = 2.5; ctx.strokeRect(-1.25, -1.25, FIELD + 2.5, FIELD + 2.5);
-  ctx.restore();
-}
-
-function drawBall(b) {
-  const fly = b.st === 'fly', lift = fly ? Math.sin(Math.min(1, b.t / 0.55) * Math.PI) * 4 : 0;
-  const scale = (1 + lift / 9) * (b.pop ? 1 + b.pop : 1);
-  if (fly) { ctx.fillStyle = 'rgba(0,0,0,.25)'; ctx.beginPath(); ctx.arc(b.x, b.y, R_BALL, 0, Math.PI * 2); ctx.fill(); }
-  const y = b.y - lift;
-  const grd = ctx.createRadialGradient(b.x - 1, y - 1, 0.5, b.x, y, R_BALL * scale);
-  grd.addColorStop(0, '#fff6c2'); grd.addColorStop(0.5, '#ffd23f'); grd.addColorStop(1, '#c79300');
-  ctx.fillStyle = grd; ctx.beginPath(); ctx.arc(b.x, y, R_BALL * scale, 0, Math.PI * 2); ctx.fill();
-}
-
-function drawRobot(r) {
-  const [col, dark] = COLORS[r.p.team];
-  ctx.save(); ctx.translate(r.x, r.y);
-  ctx.fillStyle = 'rgba(0,0,0,.3)'; rr(-8.5, -8, 18, 18, 3); ctx.fill();
-  ctx.rotate(r.th);
-  // wheels
-  ctx.fillStyle = '#222'; for (const [x, y] of [[-7, -10], [3, -10], [-7, 8], [3, 8]]) { rr(x, y, 5, 2.2, 0.8); ctx.fill(); }
-  // body
-  ctx.fillStyle = col; rr(-9, -9, 18, 18, 3); ctx.fill();
-  ctx.strokeStyle = dark; ctx.lineWidth = 1.2; ctx.stroke();
-  // intake
-  ctx.fillStyle = '#3a3f4a'; rr(7.5, -8, 3.5, 16, 1); ctx.fill();
-  ctx.fillStyle = '#5c6372'; for (let k = -6; k <= 6; k += 4) { ctx.fillRect(8.2, k - 0.5, 2.2, 1); }
-  // arrow
-  ctx.fillStyle = 'rgba(255,255,255,.9)'; ctx.beginPath(); ctx.moveTo(6, 0); ctx.lineTo(0, -4); ctx.lineTo(0, 4); ctx.closePath(); ctx.fill();
-  // held cores
-  for (let k = 0; k < r.held; k++) { ctx.fillStyle = '#ffd23f'; ctx.strokeStyle = '#a67a00'; ctx.lineWidth = 0.6; ctx.beginPath(); ctx.arc(-4, k ? 3.5 : -3.5, 2.6, 0, Math.PI * 2); ctx.fill(); ctx.stroke(); }
-  ctx.restore();
-  // label (stays upright)
-  ctx.fillStyle = '#fff'; ctx.strokeStyle = 'rgba(0,0,0,.6)'; ctx.lineWidth = 1.2;
-  ctx.font = 'bold 6px Segoe UI, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  ctx.strokeText('P' + r.p.num, r.x, r.y - 15); ctx.fillText('P' + r.p.num, r.x, r.y - 15);
-  const s = sources.get(r.p.src);
-  if (s && !s.alive) { ctx.fillStyle = '#ffb347'; ctx.font = 'bold 4px Segoe UI'; ctx.fillText('NO SIGNAL', r.x, r.y + 15); }
-}
-
-function drawHUD() {
-  const cx = W / 2, h = HUD - 12;
-  ctx.textBaseline = 'middle'; ctx.textAlign = 'center';
-  const box = (x, w, fill) => { ctx.fillStyle = fill; rr(x, 6, w, h, 12); ctx.fill(); };
-  box(cx - 290, 200, '#9b1c20'); box(cx + 90, 200, '#174a8f'); box(cx - 80, 160, '#1d222d');
-  ctx.fillStyle = '#fff'; ctx.font = '600 18px Segoe UI, sans-serif';
-  ctx.fillText('RED', cx - 240, 6 + h / 2); ctx.fillText('BLUE', cx + 140, 6 + h / 2);
-  ctx.font = '900 44px Segoe UI, sans-serif';
-  ctx.fillText(score.red, cx - 135, 8 + h / 2); ctx.fillText(score.blue, cx + 235, 8 + h / 2);
-  const t = matchLen === 0 ? '∞' : Math.ceil(timeLeft);
-  ctx.fillStyle = matchLen && timeLeft <= 10 && state === 'play' ? '#ffb347' : '#fff';
-  ctx.fillText(matchLen ? `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}` : t, cx, 8 + h / 2);
-}
-
-function draw() {
-  ctx.fillStyle = '#12151c'; ctx.fillRect(0, 0, W, H);
-  drawField();
-  ctx.save(); ctx.translate(OX, OY); ctx.scale(S, S);
-  balls.forEach(b => b.st === 'roll' && drawBall(b));
-  robots.forEach(drawRobot);
-  balls.forEach(b => b.st === 'fly' && drawBall(b));
-  for (const p of popups) {
-    ctx.globalAlpha = Math.min(1, p.t * 2); ctx.fillStyle = p.color; ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5;
-    ctx.font = '900 12px Segoe UI, sans-serif'; ctx.textAlign = 'center';
-    const y = p.y - (1.2 - p.t) * 12; ctx.strokeText(p.text, p.x, y); ctx.fillText(p.text, p.x, y);
-  }
-  ctx.globalAlpha = 1; ctx.restore();
-  if (state !== 'lobby') drawHUD();
-  if (state === 'countdown') {
-    const n = Math.ceil(countdown - 1);
-    ctx.fillStyle = 'rgba(0,0,0,.35)'; ctx.fillRect(0, 0, W, H);
-    ctx.fillStyle = n > 0 ? '#fff' : '#2fbf71'; ctx.font = `900 ${Math.min(W, H) / 4}px Segoe UI, sans-serif`;
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(n > 0 ? n : 'GO!', W / 2, H / 2);
-  }
-}
-
-// ---------- main loop ----------
-let last = performance.now();
-function frame(now) {
-  const dt = Math.min(0.05, (now - last) / 1000); last = now;
-  pollKeyboard(); pollGamepads();
-  if (state === 'lobby') lobbyInput();
-  else if (state === 'countdown') {
-    countdown -= dt;
-    const n = Math.ceil(countdown - 1);
-    if (n !== lastBeep) { lastBeep = n; n > 0 ? sfx.beep() : sfx.go(); }
-    if (countdown <= 0.6) state = 'play';
-  } else if (state === 'play') {
-    for (let k = 0; k < 2; k++) step(dt / 2);
-    if (matchLen) {
-      const before = Math.ceil(timeLeft); timeLeft -= dt;
-      if (Math.ceil(timeLeft) !== before && timeLeft <= 5 && timeLeft > 0) sfx.beep();
-      if (timeLeft <= 0) { timeLeft = 0; endMatch(); }
-    }
-  } else if (state === 'end') {
-    for (const s of sources.values()) {
-      if (!players.some(p => p.src === s.key)) continue;
-      if (pressed(s, 'A') || pressed(s, 'R1')) { startMatch(); break; }
-      if (pressed(s, 'B')) { toLobby(); break; }
-    }
-  }
-  draw();
-  for (const s of sources.values()) s.prev = new Set(s.btn);
+</main>
+<script type="module">
+import { pollInputs, endInputFrame, menuNav } from './js/input.js';
+import { sfx } from './js/audio.js';
+const cards = [...document.querySelectorAll('.card')];
+let sel = 0;
+const cols = () => getComputedStyle(document.getElementById('grid')).gridTemplateColumns.split(' ').length;
+function show() { cards.forEach((c, i) => c.classList.toggle('sel', i === sel)); }
+cards.forEach((c, i) => c.addEventListener('mouseenter', () => { sel = i; show(); }));
+function frame() {
+  pollInputs();
+  const n = menuNav(), before = sel;
+  if (n.left) sel = Math.max(0, sel - 1);
+  if (n.right) sel = Math.min(cards.length - 1, sel + 1);
+  if (n.up) sel = Math.max(0, sel - cols());
+  if (n.down) sel = Math.min(cards.length - 1, sel + cols());
+  if (sel !== before) { sfx.move(); show(); cards[sel].scrollIntoView({ block: 'nearest' }); }
+  if (n.ok) { location.href = cards[sel].getAttribute('href'); return; }
+  endInputFrame();
   requestAnimationFrame(frame);
 }
-renderLobby();
-// show a demo field behind the lobby
-balls = BALL_START.map(([x, y]) => ({ x, y, vx: 0, vy: 0, st: 'roll', t: 0 }));
+show();
 requestAnimationFrame(frame);
 </script>
 </body>

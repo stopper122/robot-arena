@@ -1,0 +1,252 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Skills Course · Robot Arena</title>
+<link rel="stylesheet" href="css/game.css">
+<script type="importmap">{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js" } }</script>
+</head>
+<body>
+<canvas id="c" class="game"></canvas>
+<div class="corner-help">Esc = players · F = full screen</div>
+<script type="module">
+import { THREE, createWorld, makeField, makeRobot, placeRobot, makeParticles, labelSprite, mat, mesh } from './js/scene3d.js';
+import { pollInputs, endInputFrame } from './js/input.js';
+import { sfx, unlockAudio } from './js/audio.js';
+import { createLobby, createHud, COLORS, SPEED_SELECT, fmtTenths } from './js/lobby.js';
+import { SPEEDS, driveInput, stepRobot, separate, clampField, pushFromSegment } from './js/drive.js';
+
+const R_ROBOT = 10.5, POST_R = 1.8, CONE_R = 3, CONE_PENALTY = 2, TIME_LIMIT = 180;
+const H = Math.PI / 2;
+// Gates: center (x,y), the direction the gate line runs (ang), and its width. Drive through them in order.
+const COURSES = {
+  beginner: {
+    name: 'Beginner',
+    walls: [[46, 72, 98, 72]],
+    gates: [{ x: 24, y: 72, ang: 0, w: 34 }, { x: 72, y: 30, ang: H, w: 34 }, { x: 120, y: 72, ang: 0, w: 34 }, { x: 72, y: 114, ang: H, w: 34 }],
+    cones: [[44, 30], [100, 30], [100, 114], [46, 118]],
+  },
+  expert: {
+    name: 'Expert',
+    walls: [[46, 72, 98, 72], [72, 72, 72, 88]],
+    gates: [{ x: 24, y: 84, ang: 0, w: 27 }, { x: 24, y: 40, ang: 0, w: 27 }, { x: 54, y: 18, ang: H, w: 27 }, { x: 72, y: 50, ang: 0, w: 27 },
+      { x: 90, y: 18, ang: H, w: 27 }, { x: 120, y: 40, ang: 0, w: 27 }, { x: 120, y: 98, ang: 0, w: 27 }, { x: 92, y: 122, ang: H, w: 27 }, { x: 52, y: 100, ang: 0, w: 27 }],
+    cones: [[120, 69], [36, 62], [104, 112], [72, 128], [38, 20]],
+  },
+};
+const FINISH = { x0: 10, y0: 104, x1: 42, y1: 134 };
+const STARTS = [[26, 119, -H], [26, 119, -H], [26, 119, -H], [26, 119, -H]];
+
+const world = createWorld(document.getElementById('c'), { span: 150, pitch: 1.05 });
+world.scene.add(makeField(144));
+const courseGroup = new THREE.Group(); world.scene.add(courseGroup);
+const dyn = new THREE.Group(); world.scene.add(dyn);
+const parts = makeParticles(world.scene);
+const hud = createHud();
+
+let state = 'lobby', course = COURSES.beginner, courseKey = 'beginner', robots = [], cones = [], speed = SPEEDS.normal;
+let countdown = 0, lastBeep = 0, elapsed = 0, gateMeshes = [];
+
+const lobby = createLobby({
+  title: 'Skills Course', tag: '★★★ Hard · 3D',
+  rules: 'Drive through the <b>numbered gates in order</b> (1, 2, 3...), then <b>park in the checkered FINISH box</b> and stop. Knocking over a <b style="color:#ff8a3d">cone</b> adds <b>+2 seconds</b>. Fastest time wins! The Expert course has more gates, narrower openings and tight turns. Tip: try Tank drive for precise steering.',
+  selects: [{ id: 'course', label: 'Course', options: [['beginner', 'Beginner'], ['expert', 'Expert']], def: 'beginner' }, SPEED_SELECT('normal')],
+  onStart: start, onLobby: () => { state = 'lobby'; hud.hide(); },
+});
+lobby.status('');
+document.querySelector('[data-opt="course"]').addEventListener('change', e => buildCourse(e.target.value));
+
+// ---------- course building ----------
+function gatePosts(g) { const c = Math.cos(g.ang), s = Math.sin(g.ang); return [[g.x - c * g.w / 2, g.y - s * g.w / 2], [g.x + c * g.w / 2, g.y + s * g.w / 2]]; }
+function buildCourse(key) {
+  courseKey = key; course = COURSES[key];
+  courseGroup.clear(); gateMeshes = [];
+  const wallMat = mat(0xd7dce4, { metalness: 0.4, roughness: 0.3 });
+  for (const [x1, y1, x2, y2] of course.walls) {
+    const len = Math.hypot(x2 - x1, y2 - y1);
+    const w = mesh(new THREE.BoxGeometry(len + 2, 6, 2), wallMat);
+    w.position.set((x1 + x2) / 2, 3, (y1 + y2) / 2); w.rotation.y = -Math.atan2(y2 - y1, x2 - x1);
+    courseGroup.add(w);
+  }
+  course.gates.forEach((g, i) => {
+    const grp = new THREE.Group();
+    for (const [px, py] of gatePosts(g)) {
+      const post = mesh(new THREE.CylinderGeometry(POST_R, POST_R, 16, 16), mat(0xf4f6fa));
+      post.position.set(px, 8, py); grp.add(post);
+      const cap = mesh(new THREE.SphereGeometry(2.4, 16, 12), mat(0x3e8cf0, { emissive: 0x1a3a70 }));
+      cap.position.set(px, 16.5, py); grp.add(cap);
+    }
+    const len = g.w;
+    const strip = new THREE.Mesh(new THREE.PlaneGeometry(len, 2), new THREE.MeshBasicMaterial({ color: 0x3e8cf0, transparent: true, opacity: 0.55 }));
+    strip.rotation.x = -H; strip.rotation.z = -g.ang; strip.position.set(g.x, 0.08, g.y); grp.add(strip);
+    const label = labelSprite(String(i + 1), '#1d222d', '#fff', 1.1); label.position.set(g.x, 26, g.y); grp.add(label);
+    courseGroup.add(grp);
+    gateMeshes.push({ grp, strip });
+  });
+  // finish box
+  const c = document.createElement('canvas'); c.width = 256; c.height = 256; const x = c.getContext('2d');
+  for (let i = 0; i < 8; i++) for (let j = 0; j < 8; j++) { x.fillStyle = (i + j) % 2 ? '#111' : '#f4f4f4'; x.fillRect(i * 32, j * 32, 32, 32); }
+  const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace;
+  const fw = FINISH.x1 - FINISH.x0, fh = FINISH.y1 - FINISH.y0;
+  const fin = new THREE.Mesh(new THREE.PlaneGeometry(fw, fh), new THREE.MeshStandardMaterial({ map: tex, transparent: true, opacity: 0.55, roughness: 1 }));
+  fin.rotation.x = -H; fin.position.set(FINISH.x0 + fw / 2, 0.06, FINISH.y0 + fh / 2); fin.receiveShadow = true; courseGroup.add(fin);
+  const fl = labelSprite('FINISH', '#2fbf71', '#062b16', 1.2); fl.position.set(FINISH.x0 + fw / 2, 3, FINISH.y1 + 6); courseGroup.add(fl);
+  resetCones();
+}
+const coneGeo = new THREE.ConeGeometry(CONE_R, 9, 18), coneMat = mat(0xff8a3d, { roughness: 0.5 });
+function resetCones() {
+  cones.forEach(c => courseGroup.remove(c.m));
+  cones = course.cones.map(([x, y]) => {
+    const m = mesh(coneGeo, coneMat); m.position.set(x, 4.5, y); courseGroup.add(m);
+    return { x, y, hit: false, m, tip: 0, dir: 0 };
+  });
+}
+
+// ---------- race ----------
+function start() {
+  unlockAudio();
+  const o = lobby.options();
+  buildCourse(o.course); speed = SPEEDS[o.speed];
+  robots.forEach(r => { dyn.remove(r.m); dyn.remove(r.arrow); });
+  const n = lobby.players.length;
+  robots = lobby.players.map((p, i) => {
+    const c = COLORS[p.color];
+    const m = makeRobot(c.main, c.dark, p.name); dyn.add(m);
+    const arrow = mesh(new THREE.ConeGeometry(3, 7, 4), mat(c.main, { emissive: c.main, emissiveIntensity: 0.5 }), false);
+    arrow.rotation.x = Math.PI; dyn.add(arrow);
+    // line up side by side inside the finish box
+    const x = n === 1 ? 26 : FINISH.x0 + 6 + (i % 2) * 20, y = n <= 2 ? 120 : 110 + Math.floor(i / 2) * 18;
+    return { p, x: n === 1 ? 26 : x + 1, y: n <= 2 ? 120 : y, th: -H, v: 0, w: 0, next: 0, penalty: 0, done: null, still: 0, side: null, arrow, idx: i, m };
+  });
+  robots.forEach(r => r.side = sideOf(r, course.gates[0]));
+  elapsed = 0;
+  state = 'countdown'; countdown = 3.999; lastBeep = 4; hud.show();
+}
+
+function sideOf(r, g) { return Math.sign(Math.cos(g.ang) * (r.y - g.y) - Math.sin(g.ang) * (r.x - g.x)); }
+function inGateSpan(r, g) { return Math.abs(Math.cos(g.ang) * (r.x - g.x) + Math.sin(g.ang) * (r.y - g.y)) <= g.w / 2; }
+const inFinish = r => r.x > FINISH.x0 + 4 && r.x < FINISH.x1 - 4 && r.y > FINISH.y0 + 4 && r.y < FINISH.y1 - 4;
+
+function step(dt) {
+  for (const r of robots) {
+    if (r.done != null) { stepRobot(r, 0, 0, speed, dt); continue; }
+    const [tv, tw] = driveInput(r.p, speed);
+    stepRobot(r, tv, tw, speed, dt);
+  }
+  for (let i = 0; i < robots.length; i++) {
+    const a = robots[i];
+    for (let j = i + 1; j < robots.length; j++) separate(a, robots[j], R_ROBOT, R_ROBOT);
+    for (const [x1, y1, x2, y2] of course.walls) pushFromSegment(a, R_ROBOT, x1, y1, x2, y2, 2);
+    for (const g of course.gates) for (const [px, py] of gatePosts(g)) separate({ x: px, y: py }, a, POST_R, R_ROBOT, 0);
+    clampField(a, R_ROBOT);
+    for (const c of cones) {
+      if (Math.hypot(c.x - a.x, c.y - a.y) < R_ROBOT + CONE_R) {
+        const sep = separate(a, c, R_ROBOT, CONE_R, 0);
+        if (!c.hit && a.done == null) {
+          c.hit = true; a.penalty += CONE_PENALTY; sfx.penalty(); c.dir = Math.atan2(c.y - a.y, c.x - a.x);
+          parts.burst(c.x, 6, c.y, 0xff8a3d, 10, 30);
+        }
+      }
+    }
+  }
+  for (const r of robots) {
+    if (r.done != null) continue;
+    if (r.next < course.gates.length) {
+      const g = course.gates[r.next], s = sideOf(r, g);
+      if (s !== 0 && r.side !== 0 && s !== r.side && inGateSpan(r, g)) {
+        r.next++; sfx.gate(); parts.burst(g.x, 10, g.y, COLORS[r.p.color].main, 16, 35);
+        if (r.next < course.gates.length) r.side = sideOf(r, course.gates[r.next]);
+      } else if (s !== 0) r.side = s;
+    } else if (inFinish(r) && Math.abs(r.v) < 4) {
+      r.still += dt;
+      if (r.still > 0.5) { r.done = elapsed + r.penalty; sfx.win(); parts.burst(r.x, 14, r.y, 0x2fbf71, 30, 50); }
+    } else r.still = 0;
+  }
+}
+
+function endRace() {
+  state = 'end'; hud.big('');
+  const key = 'skills-best-' + courseKey;
+  let best = []; try { best = JSON.parse(localStorage.getItem(key) || '[]'); } catch {}
+  const finished = robots.filter(r => r.done != null).sort((a, b) => a.done - b.done);
+  const newRecords = [];
+  for (const r of finished) { best.push({ t: r.done, d: new Date().toLocaleDateString() }); newRecords.push(r.done); }
+  best.sort((a, b) => a.t - b.t); best = best.slice(0, 5);
+  try { localStorage.setItem(key, JSON.stringify(best)); } catch {}
+  const isRecord = finished.length && best[0] && Math.abs(best[0].t - finished[0].done) < 1e-6;
+  let title, color;
+  if (!finished.length) { title = 'Time is up!'; color = 'var(--core)'; }
+  else if (robots.length === 1) { title = `Finished in ${fmtTenths(finished[0].done)}!`; color = 'var(--go)'; }
+  else { title = `${finished[0].p.name} wins!`; color = COLORS[finished[0].p.color].main; }
+  const order = [...finished, ...robots.filter(r => r.done == null)];
+  const rows = order.map((r, i) => `<tr><td>${r.done != null ? i + 1 : '-'}</td><td><b style="color:${COLORS[r.p.color].main}">${r.p.name}</b></td>
+    <td>${r.done != null ? fmtTenths(r.done) : `DNF (gate ${r.next}/${course.gates.length})`}</td><td>${r.penalty ? '+' + r.penalty + ' s' : '0'}</td></tr>`).join('');
+  const board = best.map((b, i) => `<tr><td>${i + 1}</td><td>${fmtTenths(b.t)}</td><td>${b.d}</td></tr>`).join('');
+  lobby.showEnd(title, color,
+    `${isRecord ? '<p class="note" style="color:var(--core);font-size:22px;font-weight:800">NEW COURSE RECORD!</p>' : ''}
+     <table class="stats"><tr><th>Place</th><th>Player</th><th>Time</th><th>Cone penalties</th></tr>${rows}</table>
+     <p class="note">${course.name} course — best times on this computer</p>
+     <table class="stats" style="max-width:420px;margin:0 auto 18px">${board || '<tr><td>No finishes yet</td></tr>'}</table>`);
+  finished.length ? sfx.win() : sfx.end();
+}
+
+addEventListener('keydown', e => { if (e.code === 'Escape') state === 'lobby' ? location.href = './' : lobby.show(); });
+let last = performance.now(), clock = 0;
+function frame(now) {
+  const dt = Math.min(0.05, (now - last) / 1000); last = now; clock += dt;
+  pollInputs();
+  if (state === 'lobby') lobby.update();
+  else if (state === 'countdown') {
+    countdown -= dt;
+    const n = Math.ceil(countdown - 1);
+    if (n !== lastBeep) { lastBeep = n; n > 0 ? sfx.beep() : sfx.go(); }
+    hud.big(n > 0 ? String(n) : 'GO!', n > 0 ? '#fff' : 'var(--go)');
+    if (countdown <= 0.4) { state = 'play'; hud.big(''); }
+  } else if (state === 'play') {
+    elapsed += dt;
+    for (let k = 0; k < 2; k++) step(dt / 2);
+    if (robots.every(r => r.done != null) || elapsed >= TIME_LIMIT) endRace();
+  } else if (state === 'end') lobby.endUpdate();
+  // visuals
+  for (const r of robots) {
+    placeRobot(r.m, r);
+    const g = course.gates[r.next];
+    if (g && r.done == null && state !== 'lobby') {
+      const off = (r.idx - (robots.length - 1) / 2) * 7;
+      r.arrow.visible = true;
+      r.arrow.position.set(g.x + Math.cos(g.ang) * off, 36 + Math.sin(clock * 5 + r.idx) * 2.5, g.y + Math.sin(g.ang) * off);
+      r.arrow.rotation.y = clock * 2;
+    } else if (r.done == null && state === 'play') {
+      r.arrow.visible = true; r.arrow.position.set((FINISH.x0 + FINISH.x1) / 2, 30 + Math.sin(clock * 5) * 2.5, (FINISH.y0 + FINISH.y1) / 2);
+    } else r.arrow.visible = false;
+  }
+  // light up the next gate when one player is racing
+  gateMeshes.forEach((gm, i) => {
+    const mine = robots.length === 1 && robots[0].next === i && state !== 'lobby';
+    gm.strip.material.color.set(mine ? COLORS[robots[0].p.color].main : 0x3e8cf0);
+    gm.strip.material.opacity = mine ? 0.6 + Math.sin(clock * 8) * 0.3 : 0.4;
+  });
+  for (const c of cones) {
+    if (c.hit && c.tip < H) { c.tip = Math.min(H, c.tip + dt * 6); }
+    c.m.rotation.set(0, 0, 0);
+    if (c.tip) { c.m.rotation.y = -c.dir; c.m.rotateZ(-c.tip); c.m.position.y = 4.5 - c.tip * 1.4; }
+    c.m.position.x = c.x; c.m.position.z = c.y;
+  }
+  parts.update(dt);
+  if (state !== 'lobby') {
+    hud.set(robots.map(r => ({
+      label: r.done != null ? `${r.p.name} · FINISHED` : r.next < course.gates.length ? `${r.p.name} · gate ${r.next + 1}/${course.gates.length}` : `${r.p.name} · PARK!`,
+      value: r.done != null ? fmtTenths(r.done) : fmtTenths(elapsed + r.penalty) + (r.penalty ? ` (+${r.penalty})` : ''),
+      color: COLORS[r.p.color].main,
+    })), null);
+  }
+  world.render();
+  endInputFrame();
+  requestAnimationFrame(frame);
+}
+buildCourse('beginner');
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

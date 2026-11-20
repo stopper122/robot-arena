@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sumo Bots · Robot Arena</title>
+<link rel="stylesheet" href="css/game.css">
+<script type="importmap">{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js" } }</script>
+</head>
+<body>
+<canvas id="c" class="game"></canvas>
+<div class="corner-help">Esc = players · F = full screen</div>
+<script type="module">
+import { THREE, createWorld, makeRobot, placeRobot, makeParticles, mat, mesh } from './js/scene3d.js';
+import { pollInputs, endInputFrame } from './js/input.js';
+import { sfx, unlockAudio } from './js/audio.js';
+import { createLobby, createHud, COLORS, FFA, SPEED_SELECT, fmtTime } from './js/lobby.js';
+import { SPEEDS, driveInput } from './js/drive.js';
+
+// The ring is centered at (0,0). Robots have real momentum here so they can shove each other.
+const RING = 62, MIN_RING = 30, SHRINK_AFTER = 25, R_ROBOT = 10.5;
+const FWD_GRIP = 4.0, SIDE_GRIP = 2.2;   // how fast wheels fix forward vs sideways speed (x top speed per second)
+
+const world = createWorld(document.getElementById('c'), { cx: 0, cz: 0, span: 140, pitch: 1.05, bg: 0x0d1018, shadowSpan: 90 });
+const scene = world.scene;
+scene.fog = new THREE.Fog(0x0d1018, 300, 700);
+
+// arena: raised ring with a white edge line, floating over a dark pit
+const ring = new THREE.Group(); scene.add(ring);
+const top = mesh(new THREE.CylinderGeometry(RING, RING, 6, 96), [mat(0x3b4252), mat(0x2b303b), mat(0x2b303b)], false);
+top.position.y = -3; top.receiveShadow = true; ring.add(top);
+{
+  const c = document.createElement('canvas'); c.width = c.height = 512; const x = c.getContext('2d');
+  const g = x.createRadialGradient(256, 256, 30, 256, 256, 256); g.addColorStop(0, '#5a6274'); g.addColorStop(1, '#3a4150');
+  x.fillStyle = g; x.fillRect(0, 0, 512, 512);
+  x.strokeStyle = 'rgba(255,255,255,.18)'; x.lineWidth = 4;
+  for (const r of [70, 140]) { x.beginPath(); x.arc(256, 256, r, 0, 7); x.stroke(); }
+  x.strokeStyle = '#ffd23f'; x.lineWidth = 10; x.beginPath(); x.arc(256, 256, 236, 0, 7); x.stroke(); // warning stripe
+  x.strokeStyle = '#ffffff'; x.lineWidth = 8; x.beginPath(); x.arc(256, 256, 252, 0, 7); x.stroke();
+  const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace;
+  const face = mesh(new THREE.CircleGeometry(RING, 96), new THREE.MeshStandardMaterial({ map: tex, roughness: 0.85 }), false);
+  face.rotation.x = -Math.PI / 2; face.position.y = 0.02; ring.add(face);
+}
+const pit = new THREE.GridHelper(1200, 60, 0x2a3346, 0x1a2030); pit.position.y = -140; scene.add(pit);
+const dyn = new THREE.Group(); scene.add(dyn);
+const parts = makeParticles(scene);
+const hud = createHud();
+
+let state = 'lobby', robots = [], speed = SPEEDS.normal, rounds = 3, round = 0, countdown = 0, lastBeep = 0, roundT = 0, ringR = RING, banner = 0;
+
+const lobby = createLobby({
+  title: 'Sumo Bots', tag: '★★ Medium · 3D',
+  rules: 'Push the other robots <b>off the ring</b>! The last robot on the ring wins the round. After 25 seconds the ring starts to <b>shrink</b>. Pushing from the <b>side</b> works better than head-on. Most round wins takes the match. Playing alone? A CPU robot will fight you.',
+  selects: [{ id: 'rounds', label: 'Rounds', options: [['3', '3'], ['5', '5'], ['7', '7']], def: '3' },
+    { id: 'cpu', label: 'CPU robots', options: [['auto', 'Only if alone'], ['0', 'None'], ['1', '1'], ['2', '2'], ['3', '3']], def: 'auto' },
+    { id: 'cpuskill', label: 'CPU skill', options: [['0.55', 'Easy'], ['0.8', 'Medium'], ['1', 'Hard']], def: '0.55' },
+    SPEED_SELECT('normal')],
+  onStart: start, onLobby: () => { state = 'lobby'; hud.hide(); },
+});
+
+function start() {
+  unlockAudio();
+  const o = lobby.options();
+  speed = SPEEDS[o.speed]; rounds = +o.rounds;
+  const humans = lobby.players.map(p => ({ ...p, p }));
+  let cpus = o.cpu === 'auto' ? (humans.length < 2 ? 1 : 0) : Math.min(+o.cpu, 4 - humans.length);
+  const list = lobby.players.map(p => ({ p, name: p.name, color: p.color }));
+  for (let i = 0; i < cpus; i++) {
+    const color = FFA.find(c => !list.some(r => r.color === c));
+    list.push({ p: null, cpu: +o.cpuskill, name: 'CPU', color });
+  }
+  robots.forEach(r => dyn.remove(r.m));
+  robots = list.map(r => {
+    const c = COLORS[r.color];
+    return { ...r, wins: 0, pushes: 0, m: makeRobot(c.main, c.dark, r.name) };
+  });
+  robots.forEach(r => dyn.add(r.m));
+  round = 0; nextRound();
+}
+
+function nextRound() {
+  round++; roundT = 0; ringR = RING; ring.scale.set(1, 1, 1);
+  const n = robots.length;
+  robots.forEach((r, i) => {
+    const a = (i / n) * Math.PI * 2 + Math.PI;
+    Object.assign(r, { x: Math.cos(a) * 38, y: Math.sin(a) * 38, th: a + Math.PI, vx: 0, vy: 0, w: 0, alive: true, h: 0, vh: 0, tumble: 0, lastHit: null });
+    r.m.rotation.set(0, 0, 0); r.m.visible = true;
+  });
+  state = 'countdown'; countdown = 3.999; lastBeep = 4; hud.show();
+}
+
+function cpuDrive(r) {
+  // chase the nearest robot, but back toward the middle when close to the edge
+  const others = robots.filter(o => o !== r && o.alive);
+  let tx = 0, ty = 0;
+  const d0 = Math.hypot(r.x, r.y);
+  if (others.length && d0 < ringR - 16) {
+    const t = others.reduce((a, b) => Math.hypot(a.x - r.x, a.y - r.y) < Math.hypot(b.x - r.x, b.y - r.y) ? a : b);
+    // aim a little behind the target (on the far side from center) so we shove it outward
+    const td = Math.hypot(t.x, t.y) || 1;
+    tx = t.x + t.x / td * 4; ty = t.y + t.y / td * 4;
+  }
+  const want = Math.atan2(ty - r.y, tx - r.x);
+  let diff = want - r.th; diff = Math.atan2(Math.sin(diff), Math.cos(diff));
+  const skill = r.cpu;
+  const tw = Math.max(-1, Math.min(1, diff * 2.5)) * speed.w * skill;
+  const tv = (Math.cos(diff) > 0.6 ? 1 : Math.cos(diff) > 0 ? 0.35 : -0.2) * speed.v * skill;
+  return [tv, tw];
+}
+
+function step(dt) {
+  roundT += dt;
+  if (roundT > SHRINK_AFTER) { ringR = Math.max(MIN_RING, RING - (roundT - SHRINK_AFTER) * 1.6); ring.scale.set(ringR / RING, 1, ringR / RING); }
+  for (const r of robots) {
+    if (!r.alive) continue;
+    const [tv, tw] = r.cpu ? cpuDrive(r) : driveInput(r.p, speed);
+    const wacc = speed.w * 7 * dt;
+    r.w += Math.max(-wacc, Math.min(wacc, tw - r.w));
+    r.th += r.w * dt;
+    const c = Math.cos(r.th), s = Math.sin(r.th);
+    let vf = r.vx * c + r.vy * s, vs = -r.vx * s + r.vy * c;
+    const fa = speed.v * FWD_GRIP * dt, sa = speed.v * SIDE_GRIP * dt;
+    vf += Math.max(-fa, Math.min(fa, tv - vf));
+    vs += Math.max(-sa, Math.min(sa, -vs));
+    r.vx = vf * c - vs * s; r.vy = vf * s + vs * c;
+    r.x += r.vx * dt; r.y += r.vy * dt;
+  }
+  // bumps
+  for (let i = 0; i < robots.length; i++) for (let j = i + 1; j < robots.length; j++) {
+    const a = robots[i], b = robots[j];
+    if (!a.alive || !b.alive) continue;
+    const dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy) || 0.01, o = 2 * R_ROBOT - d;
+    if (o <= 0) continue;
+    const nx = dx / d, ny = dy / d;
+    a.x -= nx * o / 2; a.y -= ny * o / 2; b.x += nx * o / 2; b.y += ny * o / 2;
+    const rel = (b.vx - a.vx) * nx + (b.vy - a.vy) * ny;
+    if (rel < 0) {
+      const j2 = -(1 + 0.25) * rel / 2;
+      a.vx -= j2 * nx; a.vy -= j2 * ny; b.vx += j2 * nx; b.vy += j2 * ny;
+      if (-rel > 25) { sfx.bump(); parts.burst((a.x + b.x) / 2, 6, (a.y + b.y) / 2, 0xffffff, 6, 25); }
+      // remember who pushed whom, for "push-offs"
+      const aPush = (a.vx * nx + a.vy * ny), bPush = -(b.vx * nx + b.vy * ny);
+      if (aPush > bPush) b.lastHit = a; else a.lastHit = b;
+    }
+  }
+  // falling off
+  for (const r of robots) {
+    if (r.alive && Math.hypot(r.x, r.y) > ringR) {
+      r.alive = false; r.vh = 10; sfx.fall();
+      if (r.lastHit && r.lastHit.alive) r.lastHit.pushes++;
+    }
+  }
+  const alive = robots.filter(r => r.alive);
+  if ((robots.length > 1 && alive.length <= 1) || (robots.length === 1 && alive.length === 0)) {
+    const w = alive[0];
+    if (w) { w.wins++; sfx.win(); hud.big(`${w.name} wins round ${round}!`, COLORS[w.color].main, true); parts.burst(w.x, 20, w.y, 0xffd23f, 30, 50); }
+    else hud.big(robots.length === 1 ? 'Oops! Try again' : 'Nobody wins!', '#fff', true);
+    state = 'roundover'; banner = 2.6;
+  }
+}
+
+function updateFalling(dt) {
+  for (const r of robots) {
+    if (r.alive) continue;
+    r.vh -= 260 * dt; r.h += r.vh * dt; r.tumble += dt * 4;
+    r.x += r.vx * dt * 0.6; r.y += r.vy * dt * 0.6;
+    if (r.h < -200) r.m.visible = false;
+  }
+}
+
+function endMatch() {
+  state = 'end'; hud.big('');
+  const best = Math.max(...robots.map(r => r.wins));
+  const winners = robots.filter(r => r.wins === best);
+  const title = winners.length > 1 ? "It's a tie!" : `${winners[0].name}${winners[0].cpu ? '' : ''} wins the match!`;
+  const color = winners.length > 1 ? 'var(--core)' : COLORS[winners[0].color].main;
+  winners.length === 1 && !winners[0].cpu ? sfx.win() : sfx.end();
+  const rows = [...robots].sort((a, b) => b.wins - a.wins).map(r =>
+    `<tr><td><b style="color:${COLORS[r.color].main}">${r.name}</b></td><td>${r.wins}</td><td>${r.pushes}</td></tr>`).join('');
+  lobby.showEnd(title, color, `<table class="stats"><tr><th>Robot</th><th>Rounds won</th><th>Push-offs</th></tr>${rows}</table>`);
+}
+
+addEventListener('keydown', e => { if (e.code === 'Escape') state === 'lobby' ? location.href = './' : lobby.show(); });
+let last = performance.now(), clock = 0;
+function frame(now) {
+  const dt = Math.min(0.05, (now - last) / 1000); last = now; clock += dt;
+  pollInputs();
+  if (state === 'lobby') lobby.update();
+  else if (state === 'countdown') {
+    countdown -= dt;
+    const n = Math.ceil(countdown - 1);
+    if (n !== lastBeep) { lastBeep = n; n > 0 ? sfx.beep() : sfx.go(); }
+    hud.big(n > 0 ? String(n) : 'PUSH!', n > 0 ? '#fff' : 'var(--go)');
+    if (countdown <= 0.4) { state = 'play'; hud.big(''); }
+  } else if (state === 'play') { for (let k = 0; k < 3 && state === 'play'; k++) step(dt / 3); }
+  else if (state === 'roundover') {
+    banner -= dt;
+    if (banner <= 0) { hud.big(''); round >= rounds ? endMatch() : nextRound(); }
+  } else if (state === 'end') lobby.endUpdate();
+  if (state !== 'lobby') updateFalling(dt);
+  for (const r of robots) {
+    placeRobot(r.m, r, r.h);
+    if (!r.alive) { r.m.rotation.x = r.tumble; r.m.rotation.z = r.tumble * 0.6; }
+  }
+  if (state === 'lobby') ring.rotation.y = clock * 0.15; else ring.rotation.y = 0;
+  parts.update(dt);
+  if (state !== 'lobby') {
+    hud.set(robots.map(r => ({ label: r.name, value: r.wins, color: COLORS[r.color].main })),
+      `Round ${round}/${rounds}${ringR < RING ? ' ⚠' : ''}`);
+  }
+  world.render();
+  endInputFrame();
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
